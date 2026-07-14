@@ -63,7 +63,7 @@ export const runIdParamsSchema = z
 
 export const lastEventIdSchema = z
   .string()
-  .regex(/^\d+$/u)
+  .regex(/^(?:0|[1-9]\d*)$/u)
   .transform((value) => Number(value))
   .pipe(z.number().int().nonnegative().safe());
 
