@@ -10,6 +10,6 @@
     "sourceMap": true
   },
   "files": [],
-  "include": ["src/server/**/*.ts"],
+  "include": ["src/server/**/*.ts", "src/shared/**/*.ts"],
   "exclude": ["src/**/*.test.ts", "node_modules", "dist"]
 }
