@@ -1,24 +1,28 @@
 import { useEffect, useState } from "react";
-import type { DevicesResponse, EnvironmentResponse } from "../shared/contracts.js";
+import type { DevicesResponse, EnvironmentResponse, RunSummary } from "../shared/contracts.js";
 import { apiClient } from "./api/client.js";
 import { AppShell } from "./components/AppShell.js";
 import { IssueList } from "./features/current-run/IssueList.js";
 import { LogConsole } from "./features/current-run/LogConsole.js";
 import { RunSetup } from "./features/current-run/RunSetup.js";
 import { StatusMetrics } from "./features/current-run/StatusMetrics.js";
+import { RunHistory } from "./features/history/RunHistory.js";
 
 export function App() {
   const [environment, setEnvironment] = useState<EnvironmentResponse | undefined>();
   const [devices, setDevices] = useState<DevicesResponse>({ devices: [] });
   const [loadFailed, setLoadFailed] = useState(false);
+  const [activeView, setActiveView] = useState("当前测试");
+  const [history, setHistory] = useState<readonly RunSummary[]>([]);
 
   useEffect(() => {
     let active = true;
-    void Promise.all([apiClient.environment(), apiClient.devices()])
-      .then(([nextEnvironment, nextDevices]) => {
+    void Promise.all([apiClient.environment(), apiClient.devices(), apiClient.runs()])
+      .then(([nextEnvironment, nextDevices, nextRuns]) => {
         if (!active) return;
         setEnvironment(nextEnvironment);
         setDevices(nextDevices);
+        setHistory(nextRuns.runs);
       })
       .catch(() => {
         if (active) setLoadFailed(true);
@@ -29,7 +33,11 @@ export function App() {
   const selected = devices.devices.find((device) => device.serial === devices.selectedSerial);
   const deviceLabel = selected?.model ?? selected?.serial ?? "未连接设备";
   return (
-    <AppShell adbAvailable={environment?.adb.available === true} deviceLabel={deviceLabel}>
+    <AppShell adbAvailable={environment?.adb.available === true} deviceLabel={deviceLabel} activeView={activeView} onNavigate={setActiveView}>
+      {activeView === "测试历史" ? (
+        <><section className="page-heading"><div><h2>测试历史</h2><p>查看已保存的运行摘要并下载完整归档。</p></div></section><RunHistory runs={history} /></>
+      ) : (
+      <>
       <section className="page-heading">
         <div>
           <h2>当前测试</h2>
@@ -45,6 +53,8 @@ export function App() {
           <LogConsole lines={[]} />
         </div>
       </div>
+      </>
+      )}
     </AppShell>
   );
 }

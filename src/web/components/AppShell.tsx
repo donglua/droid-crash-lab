@@ -5,6 +5,8 @@ type AppShellProps = {
   readonly adbAvailable: boolean;
   readonly deviceLabel: string;
   readonly children: ReactNode;
+  readonly activeView: string;
+  readonly onNavigate: (view: string) => void;
 };
 
 const NAVIGATION = [
@@ -14,7 +16,7 @@ const NAVIGATION = [
   { label: "设置", icon: Settings },
 ] as const;
 
-export function AppShell({ adbAvailable, deviceLabel, children }: AppShellProps) {
+export function AppShell({ adbAvailable, deviceLabel, children, activeView, onNavigate }: AppShellProps) {
   return (
     <div className="app-shell">
       <header className="topbar">
@@ -31,8 +33,8 @@ export function AppShell({ adbAvailable, deviceLabel, children }: AppShellProps)
       </header>
       <aside className="sidebar">
         <nav aria-label="主导航">
-          {NAVIGATION.map(({ label, icon: Icon }, index) => (
-            <button className={index === 0 ? "nav-item is-active" : "nav-item"} type="button" key={label}>
+          {NAVIGATION.map(({ label, icon: Icon }) => (
+            <button className={activeView === label ? "nav-item is-active" : "nav-item"} type="button" key={label} onClick={() => onNavigate(label)}>
               <Icon size={17} aria-hidden="true" />
               <span>{label}</span>
             </button>

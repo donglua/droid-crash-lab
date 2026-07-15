@@ -1,13 +1,14 @@
-import type { DevicesResponse, EnvironmentResponse } from "../../shared/contracts.js";
+import type { DevicesResponse, EnvironmentResponse, RunsResponse, RunSummary } from "../../shared/contracts.js";
 import {
   devicesResponseSchema,
   environmentResponseSchema,
+  runsResponseSchema,
 } from "../../shared/schemas.js";
 
 export type ApiClient = {
   readonly environment: () => Promise<EnvironmentResponse>;
   readonly devices: () => Promise<DevicesResponse>;
-  readonly runs: () => Promise<{ readonly runs: readonly [] }>;
+  readonly runs: () => Promise<RunsResponse>;
 };
 
 async function getJson(url: string): Promise<unknown> {
@@ -27,7 +28,7 @@ export class HttpResponseError extends Error {
 export const apiClient: ApiClient = {
   environment: async () => parseEnvironment(await getJson("/api/environment")),
   devices: async () => parseDevices(await getJson("/api/devices")),
-  runs: async () => ({ runs: [] }),
+  runs: async () => parseRuns(await getJson("/api/runs")),
 };
 
 function parseEnvironment(value: unknown): EnvironmentResponse {
@@ -61,5 +62,29 @@ function toolStatus(value: {
     available: value.available,
     checkedLocations: value.checkedLocations,
     ...(value.path === undefined ? {} : { path: value.path }),
+  };
+}
+
+function parseRuns(value: unknown): RunsResponse {
+  return { runs: runsResponseSchema.parse(value).runs.map(parseRunSummary) };
+}
+
+function parseRunSummary(parsed: ReturnType<typeof runsResponseSchema.parse>["runs"][number]): RunSummary {
+  return {
+    id: parsed.id,
+    state: parsed.state,
+    config: parsed.config,
+    device: {
+      serial: parsed.device.serial,
+      state: parsed.device.state,
+      ...(parsed.device.model === undefined ? {} : { model: parsed.device.model }),
+      ...(parsed.device.product === undefined ? {} : { product: parsed.device.product }),
+      ...(parsed.device.transportId === undefined ? {} : { transportId: parsed.device.transportId }),
+    },
+    apk: parsed.apk,
+    startedAt: parsed.startedAt,
+    issueCount: parsed.issueCount,
+    ...(parsed.completedAt === undefined ? {} : { completedAt: parsed.completedAt }),
+    ...(parsed.monkeyProgress === undefined ? {} : { monkeyProgress: parsed.monkeyProgress }),
   };
 }

@@ -95,6 +95,18 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
 .log-line.is-error, .log-line.is-fatal { color: #ff9a9a; }
 .log-line.is-warn { color: #f4c379; }
 .sr-only { position: absolute; inline-size: 1px; block-size: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+.history-list { display: grid; gap: 8px; }
+.history-row { display: grid; grid-template-columns: minmax(190px, 1.4fr) repeat(5, minmax(86px, 0.65fr)) auto; gap: 12px; align-items: center; padding: 14px 16px; background: #fff; border: 1px solid #dce2e7; border-radius: 4px; }
+.history-main { min-width: 0; display: grid; gap: 5px; }
+.history-main strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.history-main code { color: #66717d; font-size: 10px; overflow-wrap: anywhere; }
+.history-value { display: grid; gap: 5px; }
+.history-value span { color: #7c8791; font-size: 10px; }
+.history-value strong { font-size: 12px; font-weight: 650; }
+.archive-link { min-height: 38px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 0 10px; color: #1769aa; border: 1px solid #9ebbd0; border-radius: 4px; text-decoration: none; font-size: 12px; font-weight: 650; }
+.history-empty { padding: 24px 0; }
+.history-empty h3 { margin: 0 0 8px; font-size: 16px; }
+.history-empty p { margin: 0; color: #66717d; font-size: 13px; }
 
 @media (max-width: 760px) {
   .app-shell { grid-template: auto auto minmax(0, 1fr) / minmax(0, 1fr); }
@@ -113,6 +125,8 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
   .issue-meta { grid-column: 2; text-align: left; }
   .log-toolbar { align-items: stretch; flex-wrap: wrap; }
   .log-search { flex-basis: 100%; order: 3; }
+  .history-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .history-main, .archive-link { grid-column: 1 / -1; }
 }
 
 @media (prefers-reduced-motion: no-preference) {

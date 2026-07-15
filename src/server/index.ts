@@ -6,6 +6,7 @@ import { DeviceService } from "./devices/device-service.js";
 import { RunEventBus } from "./events/event-bus.js";
 import { RunCoordinator } from "./runs/run-coordinator.js";
 import { RunRepository } from "./runs/run-repository.js";
+import { resolve } from "node:path";
 
 async function main(): Promise<void> {
   const { app, shutdown } = await buildProductionApp();
@@ -72,7 +73,7 @@ export async function buildProductionApp(
       archive: (runId) => repository.createArchive(runId),
       events: (listener, afterId) => eventBus.subscribe(listener, afterId),
     },
-  });
+  }, { webRoot: resolve("dist") });
   const shutdown = async (): Promise<void> => {
     devices.stopPolling();
     if (coordinator.current()?.state === "running") await coordinator.stop();

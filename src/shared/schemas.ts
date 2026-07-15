@@ -138,3 +138,25 @@ export const devicesResponseSchema = z.strictObject({
   devices: z.array(deviceInfoSchema),
   selectedSerial: deviceSerialSchema.optional(),
 });
+
+export const apkInfoSchema = z.strictObject({
+  token: apkTokenSchema,
+  applicationId: z.string(),
+  versionName: z.string(),
+  versionCode: z.string(),
+  storedPath: z.string(),
+});
+
+export const runSummarySchema = z.strictObject({
+  id: runIdSchema,
+  state: z.enum(["idle", "preparing", "installing", "launching", "running", "stopping", "completed", "failed", "interrupted"]),
+  config: runConfigSchema,
+  device: deviceInfoSchema,
+  apk: apkInfoSchema,
+  startedAt: z.iso.datetime(),
+  completedAt: z.iso.datetime().optional(),
+  issueCount: z.number().int().nonnegative(),
+  monkeyProgress: z.strictObject({ completedEvents: z.number().int().nonnegative(), totalEvents: z.number().int().nonnegative() }).optional(),
+});
+
+export const runsResponseSchema = z.strictObject({ runs: z.array(runSummarySchema) });
