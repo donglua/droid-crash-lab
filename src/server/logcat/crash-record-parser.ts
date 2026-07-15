@@ -1,14 +1,26 @@
 import type { Issue } from "../../shared/contracts.js";
+import {
+  CRASH_KINDS,
+  extractAnrReason,
+  extractJavaDetails,
+  extractNativeDetails,
+  extractProcess,
+  extractThreadName,
+  type CrashKind,
+} from "./crash-details.js";
 import type { RawLogLine } from "./log-framer.js";
 
-export const CRASH_KINDS = ["java", "anr", "native"] as const;
-export type CrashKind = (typeof CRASH_KINDS)[number];
+export { CRASH_KINDS };
+export type { CrashKind };
 
 export type ParseWarningCode =
   | "candidate_truncated"
   | "missing_timestamp"
   | "missing_process"
-  | "missing_exception";
+  | "missing_exception"
+  | "missing_anr_reason"
+  | "missing_native_signal"
+  | "missing_native_frame";
 
 export type ParseWarning = {
   readonly code: ParseWarningCode;
@@ -23,6 +35,7 @@ export type ParsedCrash = {
 
 export type LogRecord = {
   readonly timestamp: string;
+  readonly processId: number;
   readonly tag: string;
   readonly message: string;
 };
@@ -31,29 +44,25 @@ export type CrashCandidate = {
   readonly kind: CrashKind;
   readonly lines: readonly RawLogLine[];
   readonly truncated: boolean;
-};
-
-type JavaDetails = {
-  readonly type: "java" | "oom";
-  readonly exceptionClass?: string;
-  readonly summary: string;
-  readonly topApplicationFrame?: string;
-  readonly isDi: boolean;
+  readonly processId?: number;
 };
 
 const THREADTIME_RECORD =
-  /^(\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3})\s+\d+\s+\d+\s+[VDIWEF]\s+([^:]+):\s?(.*)$/;
-const EXCEPTION = /^(?:Caused by:\s*)?([\w.$]+(?:Exception|Error))(?::\s*(.*))?$/;
-const APPLICATION_FRAME = /\bat\s+([^\s(]+\([^)]*\))/;
+  /^(\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3})\s+(\d+)\s+\d+\s+[VDIWEF]\s+([^:]+):\s?(.*)$/;
 
 export function parseLogRecord(raw: string): LogRecord | null {
   const match = THREADTIME_RECORD.exec(raw);
   const timestamp = match?.[1];
-  const tag = match?.[2];
-  const message = match?.[3];
-  return timestamp === undefined || tag === undefined || message === undefined
-    ? null
-    : { timestamp, tag: tag.trim(), message };
+  const processIdText = match?.[2];
+  const tag = match?.[3];
+  const message = match?.[4];
+  if (timestamp === undefined || processIdText === undefined || tag === undefined || message === undefined) {
+    return null;
+  }
+  const processId = Number(processIdText);
+  return Number.isSafeInteger(processId) && processId >= 0
+    ? { timestamp, processId, tag: tag.trim(), message }
+    : null;
 }
 
 export function detectCrashKind(raw: string): CrashKind | null {
@@ -63,17 +72,22 @@ export function detectCrashKind(raw: string): CrashKind | null {
   return null;
 }
 
-export function isRelatedRecord(kind: CrashKind, tag: string): boolean {
-  switch (kind) {
+export function isRelatedRecord(candidate: CrashCandidate, record: LogRecord): boolean {
+  let allowedTag: boolean;
+  switch (candidate.kind) {
     case "java":
-      return tag === "AndroidRuntime";
+      allowedTag = record.tag === "AndroidRuntime";
+      break;
     case "anr":
-      return tag === "ActivityManager" || tag === "WindowManager";
+      allowedTag = record.tag === "ActivityManager" || record.tag === "WindowManager";
+      break;
     case "native":
-      return ["libc", "DEBUG", "tombstoned", "crash_dump64", "crash_dump32"].includes(tag);
+      allowedTag = ["libc", "DEBUG", "tombstoned", "crash_dump64", "crash_dump32"].includes(record.tag);
+      break;
     default:
-      return assertNever(kind);
+      return assertNever(candidate.kind);
   }
+  return allowedTag && (candidate.processId === undefined || candidate.processId === record.processId);
 }
 
 export function parseCrashCandidate(
@@ -88,7 +102,7 @@ export function parseCrashCandidate(
   const records = rawLines.map(parseLogRecord);
   const timestamp = records[0]?.timestamp ?? "";
   const messages = rawLines.map((raw, index) => records[index]?.message ?? raw);
-  const processName = findProcess(candidate.kind, messages) ?? "unknown";
+  const processName = extractProcess(candidate.kind, messages) ?? "unknown";
   const warnings: ParseWarning[] = [];
   if (timestamp.length === 0) warnings.push(warning("missing_timestamp", startLine));
   if (processName === "unknown") warnings.push(warning("missing_process", startLine));
@@ -121,7 +135,7 @@ type BuildInput = {
 function buildIssue(input: BuildInput): Issue {
   switch (input.kind) {
     case "java": {
-      const details = parseJava(input.messages, input.applicationPackage);
+      const details = extractJavaDetails(input.messages, input.applicationPackage);
       if (details.exceptionClass === undefined) {
         input.warnings.push(warning("missing_exception", input.startLine));
       }
@@ -130,17 +144,24 @@ function buildIssue(input: BuildInput): Issue {
       return details.isDi ? { ...base, type: "java", labels: ["di"] } : { ...base, type: "java" };
     }
     case "anr": {
-      const summary = input.messages.find((line) => line.includes("Input dispatching timed out"));
-      return { ...issueBase(input, { summary: cleanReason(summary) ?? "ANR" }), type: "anr" };
+      const reason = extractAnrReason(input.messages);
+      if (reason === undefined) input.warnings.push(warning("missing_anr_reason", input.startLine));
+      return { ...issueBase(input, { summary: reason ?? "ANR" }), type: "anr" };
     }
     case "native": {
-      const signal = findMatch(input.messages, /Fatal signal \d+ \(([^)]+)\)/) ?? "Fatal signal";
-      const frame = findMatch(input.messages, /tombstone:\s*(#\d+\s+pc\s+.+)$/);
+      const details = extractNativeDetails(input.messages);
+      if (details.signal === undefined) {
+        input.warnings.push(warning("missing_native_signal", input.startLine));
+      }
+      if (details.frame === undefined) {
+        input.warnings.push(warning("missing_native_frame", input.startLine));
+      }
+      const summary = nativeSummary(details);
       return {
         ...issueBase(input, {
-          summary: frame === undefined ? signal : `${signal} at ${frame}`,
-          exceptionClass: signal,
-          ...(frame === undefined ? {} : { topApplicationFrame: frame }),
+          summary,
+          ...(details.signal === undefined ? {} : { exceptionClass: details.signal }),
+          ...(details.frame === undefined ? {} : { topApplicationFrame: details.frame }),
         }),
         type: "native",
       };
@@ -183,61 +204,14 @@ function issueBase(input: BuildInput, details: IssueDetails): Omit<Issue, "type"
   };
 }
 
-function parseJava(messages: readonly string[], applicationPackage: string): JavaDetails {
-  let exceptionClass: string | undefined;
-  let summary = "Java crash";
-  for (const message of messages) {
-    const match = EXCEPTION.exec(message.trim());
-    const matchedClass = match?.[1];
-    if (matchedClass !== undefined && (exceptionClass === undefined || message.includes("Caused by:"))) {
-      exceptionClass = matchedClass;
-      summary = message.replace(/^Caused by:\s*/, "").trim();
-    }
-  }
-  const framePrefix = applicationPackage.length === 0 ? "cn.jingzhuan" : applicationPackage;
-  const topApplicationFrame = messages
-    .map((message) => APPLICATION_FRAME.exec(message)?.[1])
-    .find((frame) => frame?.startsWith(framePrefix));
-  const isDi = messages.some(
-    (message) => message.includes("Unknown model class") || message.includes("No injector factory bound"),
-  );
-  return {
-    type: exceptionClass === "java.lang.OutOfMemoryError" ? "oom" : "java",
-    summary,
-    isDi,
-    ...(exceptionClass === undefined ? {} : { exceptionClass }),
-    ...(topApplicationFrame === undefined ? {} : { topApplicationFrame }),
-  };
-}
-
 function threadField(messages: readonly string[]): { readonly threadName?: string } {
-  const threadName = findMatch(messages, /FATAL EXCEPTION:\s*(.+)$/);
+  const threadName = extractThreadName(messages);
   return threadName === undefined ? {} : { threadName };
 }
 
-function findProcess(kind: CrashKind, messages: readonly string[]): string | undefined {
-  switch (kind) {
-    case "java":
-      return findMatch(messages, /Process:\s*([^,\s]+)/);
-    case "anr":
-      return findMatch(messages, /ANR in\s+([^\s]+)/);
-    case "native":
-      return findMatch(messages, /pid \d+ \(([^)]+)\)/) ?? findMatch(messages, /Cmdline:\s*(\S+)/);
-    default:
-      return assertNever(kind);
-  }
-}
-
-function findMatch(lines: readonly string[], pattern: RegExp): string | undefined {
-  for (const line of lines) {
-    const value = pattern.exec(line)?.[1];
-    if (value !== undefined) return value.trim();
-  }
-  return undefined;
-}
-
-function cleanReason(reason: string | undefined): string | undefined {
-  return reason?.replace(/^Reason:\s*/, "").trim();
+function nativeSummary(details: { readonly signal?: string; readonly frame?: string }): string {
+  if (details.signal !== undefined && details.frame !== undefined) return `${details.signal} at ${details.frame}`;
+  return details.signal ?? details.frame ?? "Native crash";
 }
 
 function warning(code: ParseWarningCode, lineNumber: number): ParseWarning {

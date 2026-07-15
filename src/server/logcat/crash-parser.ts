@@ -44,7 +44,7 @@ export class CrashParser {
     }
 
     const record = parseLogRecord(line.raw);
-    if (record !== null && !isRelatedRecord(this.candidate.kind, record.tag)) {
+    if (record !== null && !isRelatedRecord(this.candidate, record)) {
       return this.finalize(false);
     }
 
@@ -62,7 +62,13 @@ export class CrashParser {
   }
 
   private start(kind: CrashKind, line: RawLogLine): void {
-    this.candidate = { kind, lines: [line], truncated: false };
+    const processId = parseLogRecord(line.raw)?.processId;
+    this.candidate = {
+      kind,
+      lines: [line],
+      truncated: false,
+      ...(processId === undefined ? {} : { processId }),
+    };
   }
 
   private finalize(truncated: boolean): CrashParseBatch {

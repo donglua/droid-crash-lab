@@ -124,6 +124,79 @@ describe("CrashParser Android records", () => {
     });
     expect(result.issues[0]?.rawLines).toHaveLength(4);
   });
+
+  it("finalizes before a same-tag timestamped record from another process PID", () => {
+    // Given
+    const raw = [
+      "07-15 10:05:00.000  1200  1200 E AndroidRuntime: FATAL EXCEPTION: main",
+      "07-15 10:05:00.001  1200  1200 E AndroidRuntime: Process: cn.jingzhuan.stock, PID: 1200",
+      "07-15 10:05:00.002  1200  1200 E AndroidRuntime: java.lang.IllegalStateException: failed",
+      "07-15 10:05:00.003  1200  1200 E AndroidRuntime:     at cn.jingzhuan.stock.Home.open(Home.kt:9)",
+      "07-15 10:05:01.000  1300  1300 I AndroidRuntime: unrelated process startup",
+    ].join("\n");
+
+    // When
+    const result = parse(raw);
+
+    // Then
+    expect(result.issues[0]?.issue.rawLogEndLine).toBe(4);
+    expect(result.issues[0]?.rawLines).toHaveLength(4);
+  });
+
+  it("uses any nonempty ANR Reason content as the summary", () => {
+    // Given
+    const raw = [
+      "07-15 10:06:00.000  1000  1010 E ActivityManager: ANR in cn.example",
+      "07-15 10:06:00.001  1000  1010 E ActivityManager: Reason: executing service cn.example/.SyncService",
+    ].join("\n");
+
+    // When
+    const result = parse(raw);
+
+    // Then
+    expect(result.issues[0]?.issue.summary).toBe("executing service cn.example/.SyncService");
+  });
+
+  it("warns when an ANR candidate has no recognized nonempty reason", () => {
+    // Given / When
+    const result = parse("07-15 10:06:00.000  1000  1010 E ActivityManager: ANR in cn.example\n");
+
+    // Then
+    expect(result.warnings.map((warning) => warning.code)).toContain("missing_anr_reason");
+  });
+
+  it("extracts a standard native DEBUG frame without a tombstone prefix", () => {
+    // Given
+    const raw = [
+      "07-15 10:07:00.000  1203  1203 F libc: Fatal signal 11 (SIGSEGV), code 1 in pid 1203 (cn.example)",
+      "07-15 10:07:00.001  1203  1203 F DEBUG: #00 pc 0000000000001234 /data/app/libexample.so (render+16)",
+    ].join("\n");
+
+    // When
+    const result = parse(raw);
+
+    // Then
+    expect(result.issues[0]?.issue.topApplicationFrame).toBe(
+      "#00 pc 0000000000001234 /data/app/libexample.so (render+16)",
+    );
+  });
+
+  it("warns separately when a native candidate lacks a signal and stable frame", () => {
+    // Given
+    const parser = new CrashParser({ applicationPackage: "cn.example" });
+    parser.push({ lineNumber: 3, raw: "Fatal signal" });
+
+    // When
+    const result = parser.flush();
+
+    // Then
+    expect(result.warnings.map((warning) => warning.code)).toEqual([
+      "missing_timestamp",
+      "missing_process",
+      "missing_native_signal",
+      "missing_native_frame",
+    ]);
+  });
 });
 
 describe("CrashParser streaming boundaries", () => {
