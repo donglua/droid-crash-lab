@@ -1,0 +1,146 @@
+import { spawn } from "node:child_process";
+
+export class ProcessSpawnError extends Error {
+  override readonly name = "ProcessSpawnError";
+  readonly args: readonly string[];
+
+  constructor(
+    readonly executable: string,
+    args: readonly string[],
+    options: ErrorOptions,
+  ) {
+    super(`Failed to start ${executable}`, options);
+    this.args = [...args];
+  }
+}
+
+export type ProcessResult =
+  | {
+      readonly kind: "exited";
+      readonly exitCode: number;
+      readonly stdout: string;
+      readonly stderr: string;
+    }
+  | {
+      readonly kind: "signaled";
+      readonly signal: NodeJS.Signals;
+      readonly stdout: string;
+      readonly stderr: string;
+    }
+  | {
+      readonly kind: "aborted";
+      readonly stdout: string;
+      readonly stderr: string;
+    }
+  | {
+      readonly kind: "spawn_error";
+      readonly error: ProcessSpawnError;
+      readonly stdout: string;
+      readonly stderr: string;
+    };
+
+export type StreamProcessOptions = {
+  readonly signal?: AbortSignal;
+  readonly onStdout?: (chunk: string) => void;
+  readonly onStderr?: (chunk: string) => void;
+};
+
+export type StreamingProcess = {
+  readonly pid: number | undefined;
+  readonly completion: Promise<ProcessResult>;
+  readonly stop: () => boolean;
+};
+
+export async function runProcess(
+  executable: string,
+  args: readonly string[],
+  options: Pick<StreamProcessOptions, "signal"> = {},
+): Promise<ProcessResult> {
+  return streamProcess(executable, args, options).completion;
+}
+
+export function streamProcess(
+  executable: string,
+  args: readonly string[],
+  options: StreamProcessOptions = {},
+): StreamingProcess {
+  const child = spawn(executable, [...args], {
+    shell: false,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  let stdout = "";
+  let stderr = "";
+  let settled = false;
+  let stopRequested = false;
+  let aborted = false;
+  let removeAbortListener = (): void => undefined;
+
+  const completion = new Promise<ProcessResult>((resolveCompletion) => {
+    const settle = (result: ProcessResult): void => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      removeAbortListener();
+      resolveCompletion(result);
+    };
+
+    child.stdout.setEncoding("utf8");
+    child.stdout.on("data", (chunk: string) => {
+      stdout += chunk;
+      options.onStdout?.(chunk);
+    });
+    child.stderr.setEncoding("utf8");
+    child.stderr.on("data", (chunk: string) => {
+      stderr += chunk;
+      options.onStderr?.(chunk);
+    });
+    child.once("error", (cause) => {
+      settle({
+        kind: "spawn_error",
+        error: new ProcessSpawnError(executable, args, { cause }),
+        stdout,
+        stderr,
+      });
+    });
+    child.once("close", (exitCode, signal) => {
+      if (aborted) {
+        settle({ kind: "aborted", stdout, stderr });
+      } else if (exitCode !== null) {
+        settle({ kind: "exited", exitCode, stdout, stderr });
+      } else if (signal !== null) {
+        settle({ kind: "signaled", signal, stdout, stderr });
+      }
+    });
+
+    const abort = (): void => {
+      if (settled || aborted) {
+        return;
+      }
+      aborted = true;
+      stopRequested = true;
+      child.kill("SIGTERM");
+    };
+    if (options.signal !== undefined) {
+      options.signal.addEventListener("abort", abort, { once: true });
+      removeAbortListener = (): void =>
+        options.signal?.removeEventListener("abort", abort);
+      if (options.signal.aborted) {
+        abort();
+      }
+    }
+  });
+
+  return {
+    pid: child.pid,
+    completion,
+    stop: (): boolean => {
+      if (settled || stopRequested) {
+        return false;
+      }
+      stopRequested = true;
+      child.kill("SIGTERM");
+      return true;
+    },
+  };
+}
