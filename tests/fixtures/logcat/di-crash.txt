@@ -1,0 +1,5 @@
+07-15 10:01:00.000  1201  1201 E AndroidRuntime: FATAL EXCEPTION: main
+07-15 10:01:00.001  1201  1201 E AndroidRuntime: Process: cn.jingzhuan.stock, PID: 1201
+07-15 10:01:00.002  1201  1201 E AndroidRuntime: java.lang.IllegalArgumentException: Unknown model class DemoViewModel
+07-15 10:01:00.003  1201  1201 E AndroidRuntime: Caused by: java.lang.IllegalStateException: No injector factory bound for DemoScreen
+07-15 10:01:00.004  1201  1201 E AndroidRuntime:     at cn.jingzhuan.stock.di.ScreenFactory.create(ScreenFactory.kt:18)

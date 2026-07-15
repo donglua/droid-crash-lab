@@ -1,0 +1,3 @@
+07-15 10:03:00.000  1203  1203 F libc: Fatal signal 11 (SIGSEGV), code 1, fault addr 0x0 in tid 1203 (RenderThread), pid 1203 (cn.jingzhuan.stock)
+07-15 10:03:00.001  1300  1300 F DEBUG: Cmdline: cn.jingzhuan.stock
+07-15 10:03:00.002  1300  1300 F DEBUG: tombstone: #00 pc 0000000000012340  /data/app/lib/arm64/libstock.so (render_frame+32)

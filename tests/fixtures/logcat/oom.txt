@@ -1,0 +1,4 @@
+07-15 10:04:00.000  1204  1204 E AndroidRuntime: FATAL EXCEPTION: worker
+07-15 10:04:00.001  1204  1204 E AndroidRuntime: Process: cn.jingzhuan.stock, PID: 1204
+07-15 10:04:00.002  1204  1204 E AndroidRuntime: java.lang.OutOfMemoryError: Failed to allocate bitmap
+07-15 10:04:00.003  1204  1204 E AndroidRuntime:     at cn.jingzhuan.stock.image.ImageLoader.decode(ImageLoader.kt:27)

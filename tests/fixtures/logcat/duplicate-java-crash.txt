@@ -1,0 +1,8 @@
+07-15 10:00:00.000  1200  1200 E AndroidRuntime: FATAL EXCEPTION: main
+07-15 10:00:00.001  1200  1200 E AndroidRuntime: Process: cn.jingzhuan.stock, PID: 1200
+07-15 10:00:00.002  1200  1200 E AndroidRuntime: java.lang.IllegalStateException: screen failed
+07-15 10:00:00.003  1200  1200 E AndroidRuntime:     at cn.jingzhuan.stock.ui.HomeScreen.render(HomeScreen.kt:42)
+07-15 10:00:01.000  1200  1200 E AndroidRuntime: FATAL EXCEPTION: main
+07-15 10:00:01.001  1200  1200 E AndroidRuntime: Process: cn.jingzhuan.stock, PID: 1200
+07-15 10:00:01.002  1200  1200 E AndroidRuntime: java.lang.IllegalStateException: screen failed
+07-15 10:00:01.003  1200  1200 E AndroidRuntime:     at cn.jingzhuan.stock.ui.HomeScreen.render(HomeScreen.kt:42)
