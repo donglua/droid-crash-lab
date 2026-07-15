@@ -49,6 +49,7 @@ export type CrashCandidate = {
 
 const THREADTIME_RECORD =
   /^(\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3})\s+(\d+)\s+\d+\s+[VDIWEF]\s+([^:]+):\s?(.*)$/;
+const NATIVE_HELPER_TAGS = ["DEBUG", "tombstoned", "crash_dump64", "crash_dump32"] as const;
 
 export function parseLogRecord(raw: string): LogRecord | null {
   const match = THREADTIME_RECORD.exec(raw);
@@ -87,7 +88,12 @@ export function isRelatedRecord(candidate: CrashCandidate, record: LogRecord): b
     default:
       return assertNever(candidate.kind);
   }
-  return allowedTag && (candidate.processId === undefined || candidate.processId === record.processId);
+  const isNativeHelper =
+    candidate.kind === "native" && NATIVE_HELPER_TAGS.some((tag) => tag === record.tag);
+  return (
+    allowedTag &&
+    (isNativeHelper || candidate.processId === undefined || candidate.processId === record.processId)
+  );
 }
 
 export function parseCrashCandidate(

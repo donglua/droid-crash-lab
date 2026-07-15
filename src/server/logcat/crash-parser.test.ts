@@ -111,6 +111,8 @@ describe("CrashParser Android records", () => {
       topApplicationFrame:
         "#00 pc 0000000000012340  /data/app/lib/arm64/libstock.so (render_frame+32)",
     });
+    expect(result.issues).toHaveLength(1);
+    expect(result.warnings.map((warning) => warning.code)).not.toContain("missing_native_frame");
   });
 
   it("excludes unrelated timestamped records from the crash raw range", () => {
