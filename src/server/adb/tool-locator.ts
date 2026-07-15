@@ -29,55 +29,84 @@ export type ToolLocationResult =
       readonly checkedLocations: readonly string[];
     };
 
+type SearchContext = {
+  readonly tool: ToolName;
+  readonly checkedLocations: string[];
+  readonly seenLocations: Set<string>;
+};
+
 export async function locateTool(
   tool: ToolName,
   environment: Readonly<Record<string, string | undefined>> = process.env,
 ): Promise<ToolLocationResult> {
-  const candidates = await candidateLocations(tool, environment);
-
-  for (const candidate of candidates) {
-    if (await isExecutableFile(candidate)) {
-      return {
-        kind: "found",
-        tool,
-        executablePath: await canonicalPath(candidate),
-      };
-    }
-  }
-
-  return { kind: "unavailable", tool, checkedLocations: candidates };
-}
-
-async function candidateLocations(
-  tool: ToolName,
-  environment: Readonly<Record<string, string | undefined>>,
-): Promise<readonly string[]> {
+  const context: SearchContext = {
+    tool,
+    checkedLocations: [],
+    seenLocations: new Set<string>(),
+  };
   const pathCandidates = (environment["PATH"] ?? "")
     .split(delimiter)
     .filter((entry) => entry.length > 0)
     .map((entry) => resolve(entry, tool));
+  const pathResult = await findExecutable(context, pathCandidates);
+  if (pathResult !== undefined) {
+    return pathResult;
+  }
+
   const sdkRoots = [environment["ANDROID_HOME"], environment["ANDROID_SDK_ROOT"]]
     .filter((root): root is string => root !== undefined && root.length > 0)
-    .map((root) => resolve(root));
-  const sdkCandidates: string[] = [];
-
+    .map((root) => resolve(root))
+    .filter((root, index, roots) => roots.indexOf(root) === index);
   for (const root of sdkRoots) {
-    if (tool === "adb") {
-      sdkCandidates.push(join(root, "platform-tools", tool));
-      continue;
+    const directCandidates =
+      tool === "adb"
+        ? [join(root, "platform-tools", tool)]
+        : [join(root, "tools", "bin", tool)];
+    const directResult = await findExecutable(context, directCandidates);
+    if (directResult !== undefined) {
+      return directResult;
     }
-
-    sdkCandidates.push(join(root, "tools", "bin", tool));
-    const cmdlineTools = join(root, "cmdline-tools");
-    const entries = await directoryEntries(cmdlineTools);
-    for (const entry of entries) {
-      if (entry.isDirectory()) {
-        sdkCandidates.push(join(cmdlineTools, entry.name, "bin", tool));
+    if (tool === "apkanalyzer") {
+      const cmdlineTools = join(root, "cmdline-tools");
+      const entries = await directoryEntries(cmdlineTools);
+      const commandLineResult = await findExecutable(
+        context,
+        entries
+          .filter((entry) => entry.isDirectory())
+          .map((entry) => join(cmdlineTools, entry.name, "bin", tool)),
+      );
+      if (commandLineResult !== undefined) {
+        return commandLineResult;
       }
     }
   }
 
-  return [...new Set([...pathCandidates, ...sdkCandidates])];
+  return {
+    kind: "unavailable",
+    tool,
+    checkedLocations: context.checkedLocations,
+  };
+}
+
+async function findExecutable(
+  context: SearchContext,
+  candidates: readonly string[],
+): Promise<ToolLocationResult | undefined> {
+  for (const candidate of candidates) {
+    if (context.seenLocations.has(candidate)) {
+      continue;
+    }
+    context.seenLocations.add(candidate);
+    context.checkedLocations.push(candidate);
+    if (await isExecutableFile(candidate)) {
+      return {
+        kind: "found",
+        tool: context.tool,
+        executablePath: await canonicalPath(candidate),
+      };
+    }
+  }
+  return undefined;
 }
 
 async function directoryEntries(path: string): Promise<readonly Dirent<string>[]> {

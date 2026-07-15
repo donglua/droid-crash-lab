@@ -56,6 +56,33 @@ describe("locateTool", () => {
     });
   });
 
+  it("returns a PATH tool without reading a broken lower-priority SDK", async () => {
+    // Given
+    const pathRoot = await temporaryDirectory();
+    const sdk = await temporaryDirectory();
+    const analyzer = await executable(join(pathRoot, "apkanalyzer"));
+    const commandLineTools = join(sdk, "cmdline-tools");
+    await mkdir(commandLineTools, { recursive: true });
+    await chmod(commandLineTools, 0o000);
+
+    try {
+      // When
+      const result = await locateTool("apkanalyzer", {
+        PATH: pathRoot,
+        ANDROID_HOME: sdk,
+      });
+
+      // Then
+      expect(result).toEqual({
+        kind: "found",
+        tool: "apkanalyzer",
+        executablePath: await realpath(analyzer),
+      });
+    } finally {
+      await chmod(commandLineTools, 0o755);
+    }
+  });
+
   it("falls back to ANDROID_HOME for adb", async () => {
     // Given
     const sdk = await temporaryDirectory();
