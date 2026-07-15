@@ -89,6 +89,17 @@ describe("runProcess", () => {
     }
   });
 
+  it("returns a typed spawn error when spawn rejects the executable synchronously", async () => {
+    // Given
+    const invalidExecutable = "\0";
+
+    // When
+    const result = await runProcess(invalidExecutable, []);
+
+    // Then
+    expect(result.kind).toBe("spawn_error");
+  });
+
   it("returns a signal result when the child exits by signal", async () => {
     // Given
     const script = await fixtureScript(
@@ -104,7 +115,7 @@ describe("runProcess", () => {
 });
 
 describe("streamProcess", () => {
-  it("streams stdout and stderr while retaining completion output", async () => {
+  it("streams stdout and stderr without retaining unbounded completion output", async () => {
     // Given
     const script = await fixtureScript(
       'process.stdout.write("first"); process.stderr.write("second");\n',
@@ -122,7 +133,34 @@ describe("streamProcess", () => {
     // Then
     expect(stdout.join("")).toBe("first");
     expect(stderr.join("")).toBe("second");
-    expect(result).toMatchObject({ kind: "exited", stdout: "first", stderr: "second" });
+    expect(result).toMatchObject({ kind: "exited", stdout: "", stderr: "" });
+  });
+
+  it("preserves natural exit when abort arrives after exit but before pipe close", async () => {
+    // Given
+    const script = await fixtureScript(
+      'const { spawn } = require("node:child_process"); spawn(process.execPath, ["-e", "setTimeout(() => {}, 300)"], { stdio: ["ignore", process.stdout, process.stderr] }); process.exit(23);\n',
+    );
+    const controller = new AbortController();
+    const handle = streamProcess(script, [], { signal: controller.signal });
+    while (handle.pid !== undefined) {
+      try {
+        process.kill(handle.pid, 0);
+        await new Promise<void>((resolveTurn) => setImmediate(resolveTurn));
+      } catch (error) {
+        if (error instanceof Error) {
+          break;
+        }
+        throw error;
+      }
+    }
+
+    // When
+    controller.abort();
+    const result = await handle.completion;
+
+    // Then
+    expect(result).toMatchObject({ kind: "exited", exitCode: 23 });
   });
 
   it("makes stop idempotent after the first termination request", async () => {

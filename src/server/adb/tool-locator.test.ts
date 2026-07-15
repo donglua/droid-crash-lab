@@ -113,10 +113,10 @@ describe("locateTool", () => {
   it("finds apkanalyzer deterministically in cmdline-tools layouts", async () => {
     // Given
     const sdk = await temporaryDirectory();
-    const first = await executable(
-      join(sdk, "cmdline-tools", "11.0", "bin", "apkanalyzer"),
+    await executable(join(sdk, "cmdline-tools", "11.0", "bin", "apkanalyzer"));
+    const preferred = await executable(
+      join(sdk, "cmdline-tools", "latest", "bin", "apkanalyzer"),
     );
-    await executable(join(sdk, "cmdline-tools", "latest", "bin", "apkanalyzer"));
 
     // When
     const result = await locateTool("apkanalyzer", {
@@ -128,8 +128,26 @@ describe("locateTool", () => {
     expect(result).toEqual({
       kind: "found",
       tool: "apkanalyzer",
-      executablePath: await realpath(first),
+      executablePath: await realpath(preferred),
     });
+  });
+
+  it("surfaces operational errors while enumerating command-line tools", async () => {
+    // Given
+    const sdk = await temporaryDirectory();
+    const commandLineTools = join(sdk, "cmdline-tools");
+    await mkdir(commandLineTools, { recursive: true });
+    await chmod(commandLineTools, 0o000);
+
+    try {
+      // When
+      const result = locateTool("apkanalyzer", { PATH: "", ANDROID_HOME: sdk });
+
+      // Then
+      await expect(result).rejects.toMatchObject({ name: "ToolLookupError" });
+    } finally {
+      await chmod(commandLineTools, 0o755);
+    }
   });
 
   it("reports deduplicated checked locations when a tool is unavailable", async () => {
