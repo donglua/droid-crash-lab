@@ -112,3 +112,29 @@ export type InstallApkRequest = z.output<typeof installApkRequestSchema>;
 export type LaunchAppRequest = z.output<typeof launchAppRequestSchema>;
 export type StartRunRequest = z.output<typeof startRunRequestSchema>;
 export type RunIdParams = z.output<typeof runIdParamsSchema>;
+
+export const environmentResponseSchema = z.strictObject({
+  adb: z.strictObject({
+    available: z.boolean(),
+    path: z.string().optional(),
+    checkedLocations: z.array(z.string()),
+  }),
+  apkanalyzer: z.strictObject({
+    available: z.boolean(),
+    path: z.string().optional(),
+    checkedLocations: z.array(z.string()),
+  }),
+});
+
+export const deviceInfoSchema = z.strictObject({
+  serial: deviceSerialSchema,
+  state: z.enum(["device", "offline", "unauthorized"]),
+  model: z.string().optional(),
+  product: z.string().optional(),
+  transportId: z.string().optional(),
+});
+
+export const devicesResponseSchema = z.strictObject({
+  devices: z.array(deviceInfoSchema),
+  selectedSerial: deviceSerialSchema.optional(),
+});
