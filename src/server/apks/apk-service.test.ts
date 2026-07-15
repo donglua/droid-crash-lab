@@ -270,7 +270,7 @@ describe.sequential("ApkService", () => {
     const { service, callsPath } = await fixture();
     const apk = await service.inspectUpload("stock.apk", Buffer.from("apk"));
     process.env["FAKE_ADB_RESOLVE_STDOUT"] =
-      "cn.jingzhuan.stock/.Outer$Inner\n";
+      " \n  cn.jingzhuan.stock/.Outer$Inner  \n ";
 
     // When
     const result = await service.launch(apk.token, serial);
@@ -286,6 +286,8 @@ describe.sequential("ApkService", () => {
   it.each([
     ["multiple lines", "cn.jingzhuan.stock/.Main\ncn.jingzhuan.stock/.Other\n"],
     ["control characters", "cn.jingzhuan.stock/.Main\u0007"],
+    ["ASCII whitespace", "cn.jing zhuan.stock/.Main"],
+    ["Unicode separator", "cn.jingzhuan.stock/.Outer\u2003$Inner"],
     ["empty package", "/.Main"],
     ["empty class", "cn.jingzhuan.stock/"],
   ])("rejects launcher output with %s", async (_reason, output) => {

@@ -13,7 +13,7 @@ const metadataSchemas = {
 const componentPartSchema = z
   .string()
   .min(1)
-  .refine((value) => !/[\p{Cc}]/u.test(value));
+  .refine((value) => !/[\p{Cc}\p{White_Space}\p{Z}]/u.test(value));
 
 export function parseMetadataOutput(
   field: MetadataField,
@@ -24,7 +24,10 @@ export function parseMetadataOutput(
 }
 
 export function parseLauncherComponent(output: string): string | undefined {
-  const lines = output.split(/\r?\n/u).filter((line) => line.length > 0);
+  const lines = output
+    .trim()
+    .split(/\r?\n/u)
+    .filter((line) => line.trim().length > 0);
   if (lines.length !== 1) {
     return undefined;
   }

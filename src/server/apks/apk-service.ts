@@ -1,10 +1,8 @@
-import { createWriteStream } from "node:fs";
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, rm } from "node:fs/promises";
 import { homedir } from "node:os";
 import { extname, join } from "node:path";
 import { randomUUID } from "node:crypto";
-import { Readable } from "node:stream";
-import { pipeline } from "node:stream/promises";
+import type { Readable } from "node:stream";
 
 import type { ApkInfo } from "../../shared/contracts.js";
 import { apkTokenSchema } from "../../shared/schemas.js";
@@ -21,6 +19,7 @@ import {
   LauncherResolutionError,
 } from "./apk-errors.js";
 import type { MetadataField } from "./apk-errors.js";
+import { writeOwnedUpload } from "./apk-upload.js";
 
 export {
   ApkFileTypeError,
@@ -78,14 +77,12 @@ export class ApkService {
     );
     const uploadsRoot = join(this.options.dataRoot, "uploads");
     const storedPath = join(uploadsRoot, `${token}.apk`);
+    let ownsStoredPath = false;
 
     try {
       await mkdir(uploadsRoot, { recursive: true });
-      if (content instanceof Readable) {
-        await pipeline(content, createWriteStream(storedPath, { flags: "wx" }));
-      } else {
-        await writeFile(storedPath, content, { flag: "wx" });
-      }
+      await writeOwnedUpload(storedPath, content);
+      ownsStoredPath = true;
       const applicationId = await this.inspectField(
         "application-id",
         storedPath,
@@ -108,6 +105,9 @@ export class ApkService {
       this.apks.set(token, canonicalApk);
       return this.snapshotApk(canonicalApk);
     } catch (error) {
+      if (!ownsStoredPath) {
+        throw error;
+      }
       try {
         await rm(storedPath, { force: true });
       } catch (cleanupError) {

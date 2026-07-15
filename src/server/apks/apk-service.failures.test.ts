@@ -1,11 +1,11 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { deviceSerialSchema } from "../../shared/schemas.js";
+import { apkTokenSchema, deviceSerialSchema } from "../../shared/schemas.js";
 import { ApkService } from "./apk-service.js";
 
 const fixtureRoot = join(
@@ -39,6 +39,7 @@ afterEach(async () => {
   delete process.env["FAKE_ADB_RESOLVE_STDERR"];
   delete process.env["FAKE_ADB_LAUNCH_EXIT_CODE"];
   delete process.env["FAKE_ADB_LAUNCH_STDERR"];
+  delete process.env["FAKE_ADB_CALLS"];
   await Promise.all(
     temporaryDirectories.splice(0).map((path) =>
       rm(path, { recursive: true, force: true }),
@@ -47,6 +48,37 @@ afterEach(async () => {
 });
 
 describe.sequential("ApkService tool failures", () => {
+  it("preserves the registered upload when a generated token collides", async () => {
+    // Given
+    const dataRoot = await mkdtemp(join(tmpdir(), "droid-crash-lab-collision-"));
+    temporaryDirectories.push(dataRoot);
+    const token = apkTokenSchema.parse("123e4567-e89b-42d3-a456-426614174000");
+    const callsPath = join(dataRoot, "adb-calls.jsonl");
+    process.env["FAKE_ADB_CALLS"] = callsPath;
+    const service = new ApkService({
+      dataRoot,
+      adbExecutable,
+      apkanalyzerExecutable,
+      tokenFactory: () => token,
+    });
+    const firstBytes = Buffer.from("first upload");
+    const first = await service.inspectUpload("first.apk", firstBytes);
+
+    // When
+    const collision = service.inspectUpload(
+      "second.apk",
+      Buffer.from("second upload"),
+    );
+
+    // Then
+    await expect(collision).rejects.toMatchObject({ code: "EEXIST" });
+    await expect(readFile(first.storedPath)).resolves.toEqual(firstBytes);
+    await service.install(first.token, serial);
+    await expect(readFile(callsPath, "utf8")).resolves.toBe(
+      `${JSON.stringify(["-s", serial, "install", "-r", first.storedPath])}\n`,
+    );
+  });
+
   it("preserves a nonzero install process result", async () => {
     // Given
     process.env["FAKE_ADB_INSTALL_EXIT_CODE"] = "42";
