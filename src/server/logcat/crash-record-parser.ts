@@ -8,10 +8,19 @@ import {
   extractThreadName,
   type CrashKind,
 } from "./crash-details.js";
-import type { RawLogLine } from "./log-framer.js";
+import { createCrashFingerprint } from "./crash-fingerprint.js";
+import {
+  detectCrashKind,
+  isRelatedRecord,
+  parseLogRecord,
+  type CrashCandidate,
+  type LogRecord,
+} from "./crash-record-boundary.js";
 
 export { CRASH_KINDS };
 export type { CrashKind };
+export { detectCrashKind, isRelatedRecord, parseLogRecord };
+export type { CrashCandidate, LogRecord };
 
 export type ParseWarningCode =
   | "candidate_truncated"
@@ -33,69 +42,6 @@ export type ParsedCrash = {
   readonly rawLines: readonly string[];
 };
 
-export type LogRecord = {
-  readonly timestamp: string;
-  readonly processId: number;
-  readonly tag: string;
-  readonly message: string;
-};
-
-export type CrashCandidate = {
-  readonly kind: CrashKind;
-  readonly lines: readonly RawLogLine[];
-  readonly truncated: boolean;
-  readonly processId?: number;
-};
-
-const THREADTIME_RECORD =
-  /^(\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3})\s+(\d+)\s+\d+\s+[VDIWEF]\s+([^:]+):\s?(.*)$/;
-const NATIVE_HELPER_TAGS = ["DEBUG", "tombstoned", "crash_dump64", "crash_dump32"] as const;
-
-export function parseLogRecord(raw: string): LogRecord | null {
-  const match = THREADTIME_RECORD.exec(raw);
-  const timestamp = match?.[1];
-  const processIdText = match?.[2];
-  const tag = match?.[3];
-  const message = match?.[4];
-  if (timestamp === undefined || processIdText === undefined || tag === undefined || message === undefined) {
-    return null;
-  }
-  const processId = Number(processIdText);
-  return Number.isSafeInteger(processId) && processId >= 0
-    ? { timestamp, processId, tag: tag.trim(), message }
-    : null;
-}
-
-export function detectCrashKind(raw: string): CrashKind | null {
-  if (raw.includes("FATAL EXCEPTION")) return "java";
-  if (raw.includes("ANR in ")) return "anr";
-  if (raw.includes("Fatal signal")) return "native";
-  return null;
-}
-
-export function isRelatedRecord(candidate: CrashCandidate, record: LogRecord): boolean {
-  let allowedTag: boolean;
-  switch (candidate.kind) {
-    case "java":
-      allowedTag = record.tag === "AndroidRuntime";
-      break;
-    case "anr":
-      allowedTag = record.tag === "ActivityManager" || record.tag === "WindowManager";
-      break;
-    case "native":
-      allowedTag = ["libc", "DEBUG", "tombstoned", "crash_dump64", "crash_dump32"].includes(record.tag);
-      break;
-    default:
-      return assertNever(candidate.kind);
-  }
-  const isNativeHelper =
-    candidate.kind === "native" && NATIVE_HELPER_TAGS.some((tag) => tag === record.tag);
-  return (
-    allowedTag &&
-    (isNativeHelper || candidate.processId === undefined || candidate.processId === record.processId)
-  );
-}
-
 export function parseCrashCandidate(
   candidate: CrashCandidate,
   applicationPackage: string,
@@ -106,7 +52,7 @@ export function parseCrashCandidate(
   const endLine = last?.lineNumber ?? startLine;
   const rawLines = candidate.lines.map((line) => line.raw);
   const records = rawLines.map(parseLogRecord);
-  const timestamp = records[0]?.timestamp ?? "";
+  const timestamp = records.find((record) => record !== null)?.timestamp ?? "";
   const messages = rawLines.map((raw, index) => records[index]?.message ?? raw);
   const processName = extractProcess(candidate.kind, messages) ?? "unknown";
   const warnings: ParseWarning[] = [];
@@ -145,14 +91,17 @@ function buildIssue(input: BuildInput): Issue {
       if (details.exceptionClass === undefined) {
         input.warnings.push(warning("missing_exception", input.startLine));
       }
-      const base = issueBase(input, details);
+      const base = issueBase(input, { ...details, fingerprintType: details.type });
       if (details.type === "oom") return { ...base, type: "oom" };
       return details.isDi ? { ...base, type: "java", labels: ["di"] } : { ...base, type: "java" };
     }
     case "anr": {
       const reason = extractAnrReason(input.messages);
       if (reason === undefined) input.warnings.push(warning("missing_anr_reason", input.startLine));
-      return { ...issueBase(input, { summary: reason ?? "ANR" }), type: "anr" };
+      return {
+        ...issueBase(input, { summary: reason ?? "ANR", fingerprintType: "anr" }),
+        type: "anr",
+      };
     }
     case "native": {
       const details = extractNativeDetails(input.messages);
@@ -166,6 +115,7 @@ function buildIssue(input: BuildInput): Issue {
       return {
         ...issueBase(input, {
           summary,
+          fingerprintType: "native",
           ...(details.signal === undefined ? {} : { exceptionClass: details.signal }),
           ...(details.frame === undefined ? {} : { topApplicationFrame: details.frame }),
         }),
@@ -179,19 +129,21 @@ function buildIssue(input: BuildInput): Issue {
 
 type IssueDetails = {
   readonly summary: string;
+  readonly fingerprintType: Issue["type"];
   readonly exceptionClass?: string;
   readonly topApplicationFrame?: string;
 };
 
 function issueBase(input: BuildInput, details: IssueDetails): Omit<Issue, "type" | "labels"> {
-  const fingerprint = [
-    input.kind,
-    details.exceptionClass,
-    details.topApplicationFrame,
-    details.summary,
-  ]
-    .filter((part) => part !== undefined)
-    .join(":");
+  const fingerprint = createCrashFingerprint({
+    type: details.fingerprintType,
+    processName: input.processName,
+    summary: details.summary,
+    ...(details.exceptionClass === undefined ? {} : { exceptionClass: details.exceptionClass }),
+    ...(details.topApplicationFrame === undefined
+      ? {}
+      : { topApplicationFrame: details.topApplicationFrame }),
+  });
   return {
     id: `parsed-${input.startLine}`,
     timestamp: input.timestamp,
@@ -199,7 +151,7 @@ function issueBase(input: BuildInput, details: IssueDetails): Omit<Issue, "type"
     summary: details.summary,
     fingerprint,
     occurrenceCount: 1,
-    occurrenceTimestamps: [input.timestamp],
+    occurrenceTimestamps: input.timestamp.length === 0 ? [] : [input.timestamp],
     rawLogStartLine: input.startLine,
     rawLogEndLine: input.endLine,
     ...(details.exceptionClass === undefined ? {} : { exceptionClass: details.exceptionClass }),

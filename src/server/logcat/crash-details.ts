@@ -23,17 +23,18 @@ export function extractJavaDetails(
 ): JavaDetails {
   let exceptionClass: string | undefined;
   let summary = "Java crash";
-  for (const message of messages) {
+  let selectedExceptionIndex = -1;
+  for (const [index, message] of messages.entries()) {
     const matchedClass = EXCEPTION.exec(message.trim())?.[1];
     if (matchedClass !== undefined && (exceptionClass === undefined || message.includes("Caused by:"))) {
       exceptionClass = matchedClass;
       summary = message.replace(/^Caused by:\s*/, "").trim();
+      selectedExceptionIndex = index;
     }
   }
   const framePrefix = applicationPackage.length === 0 ? "cn.jingzhuan" : applicationPackage;
-  const topApplicationFrame = messages
-    .map((message) => APPLICATION_FRAME.exec(message)?.[1])
-    .find((frame) => frame?.startsWith(framePrefix));
+  const followingFrame = findApplicationFrame(messages, selectedExceptionIndex + 1, framePrefix);
+  const topApplicationFrame = followingFrame ?? findApplicationFrame(messages, 0, framePrefix);
   const isDi = messages.some(
     (message) => message.includes("Unknown model class") || message.includes("No injector factory bound"),
   );
@@ -60,11 +61,32 @@ export function extractAnrReason(messages: readonly string[]): string | undefine
 
 export function extractNativeDetails(messages: readonly string[]): NativeDetails {
   const signal = findMatch(messages, /Fatal signal \d+ \(([^)]+)\)/);
-  const frame = findMatch(messages, /^(?:tombstone:\s*)?(#\d+\s+pc\s+.+)$/);
+  const frames = messages
+    .map((message) => /^(?:tombstone:\s*)?(#\d+\s+pc\s+.+)$/.exec(message.trim())?.[1])
+    .filter((frame) => frame !== undefined);
+  const frame = frames.find((candidate) => candidate.includes("/data/app/")) ?? frames[0];
   return {
     ...(signal === undefined ? {} : { signal }),
     ...(frame === undefined ? {} : { frame }),
   };
+}
+
+function findApplicationFrame(
+  messages: readonly string[],
+  startIndex: number,
+  applicationPackage: string,
+): string | undefined {
+  for (let index = startIndex; index < messages.length; index += 1) {
+    const message = messages[index];
+    if (message === undefined) continue;
+    const frame = APPLICATION_FRAME.exec(message)?.[1];
+    if (frame !== undefined && isApplicationFrame(frame, applicationPackage)) return frame;
+  }
+  return undefined;
+}
+
+function isApplicationFrame(frame: string, applicationPackage: string): boolean {
+  return frame === applicationPackage || frame.startsWith(`${applicationPackage}.`);
 }
 
 export function extractProcess(kind: CrashKind, messages: readonly string[]): string | undefined {
