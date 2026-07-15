@@ -62,9 +62,11 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
 .segmented-control label:has(input:checked) { color: #1769aa; background: #fff; box-shadow: 0 1px 2px rgba(24, 33, 43, 0.09); font-weight: 650; }
 .segmented-control input { position: absolute; opacity: 0; }
 .monkey-fields { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
-.action-row { grid-column: 1 / -1; display: flex; justify-content: flex-end; }
+.action-row { grid-column: 1 / -1; display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
 .button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
+.button.is-secondary { color: #1769aa; background: #fff; border-color: #9ebbd0; }
 .button.is-danger { background: #c33d3d; border-color: #c33d3d; }
+.operation-status { grid-column: 1 / -1; margin: -4px 0 0; color: #43505c; font-size: 12px; text-align: right; }
 .metric.is-danger strong { color: #c33d3d; }
 .content-split { display: grid; grid-template-columns: minmax(260px, 0.65fr) minmax(0, 1.65fr); gap: 16px; }
 .count-badge { min-width: 28px; padding: 3px 8px; color: #1769aa; background: #eaf3fa; border-radius: 999px; font-size: 12px; text-align: center; }
@@ -107,6 +109,11 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
 .history-empty { padding: 24px 0; }
 .history-empty h3 { margin: 0 0 8px; font-size: 16px; }
 .history-empty p { margin: 0; color: #66717d; font-size: 13px; }
+.settings-list { display: grid; gap: 12px; }
+.settings-row { display: grid; grid-template-columns: 140px minmax(0, 1fr); gap: 12px; padding-bottom: 12px; border-bottom: 1px solid #e3e7eb; }
+.settings-row:last-child { padding-bottom: 0; border-bottom: 0; }
+.settings-row span { color: #66717d; font-size: 12px; }
+.settings-row code, .settings-row strong { overflow-wrap: anywhere; font-size: 13px; }
 
 @media (max-width: 760px) {
   .app-shell { grid-template: auto auto minmax(0, 1fr) / minmax(0, 1fr); }

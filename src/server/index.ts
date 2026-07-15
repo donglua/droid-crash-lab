@@ -22,11 +22,12 @@ export async function buildProductionApp(
     locateTool("adb", environment),
     locateTool("apkanalyzer", environment),
   ]);
+  const dataRoot = environment["DROID_CRASH_LAB_DATA_ROOT"] ?? DATA_ROOT;
   const adbPath = adb.kind === "found" ? adb.executablePath : "adb";
   const apkanalyzerPath = apkanalyzer.kind === "found" ? apkanalyzer.executablePath : "apkanalyzer";
   const devices = new DeviceService(adbPath);
-  const apks = new ApkService({ dataRoot: DATA_ROOT, adbExecutable: adbPath, apkanalyzerExecutable: apkanalyzerPath });
-  const repository = new RunRepository(DATA_ROOT);
+  const apks = new ApkService({ dataRoot, adbExecutable: adbPath, apkanalyzerExecutable: apkanalyzerPath });
+  const repository = new RunRepository(dataRoot);
   const eventBus = new RunEventBus({ replayLimit: 256 });
   const coordinator = new RunCoordinator({
     adbExecutable: adbPath,
@@ -70,6 +71,7 @@ export async function buildProductionApp(
         if (error instanceof Error && error.name === "RunNotFoundError") return undefined;
         throw error;
       }),
+      logRange: (runId, startLine, endLine) => repository.readLogRange(runId, startLine, endLine),
       archive: (runId) => repository.createArchive(runId),
       events: (listener, afterId) => eventBus.subscribe(listener, afterId),
     },

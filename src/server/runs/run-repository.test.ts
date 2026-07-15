@@ -166,4 +166,22 @@ describe("RunRepository", () => {
     ]);
     expect(archive.includes(Buffer.from("sibling-secret"))).toBe(false);
   });
+
+  it("reads an inclusive raw log line range without returning adjacent lines", async () => {
+    const root = await mkdtemp(join(tmpdir(), "droid-crash-lab-runs-"));
+    const repository = new RunRepository(root, () => runIdSchema.parse("20260715T020304Z-a1b2c3"));
+    const run = await repository.create(summary());
+    await repository.appendLogcat(run.id, "first\nsecond\nthird\nfourth\n");
+
+    const range = await repository.readLogRange(run.id, 2, 3);
+
+    expect(range).toEqual({
+      startLine: 2,
+      endLine: 3,
+      lines: [
+        { lineNumber: 2, line: "second" },
+        { lineNumber: 3, line: "third" },
+      ],
+    });
+  });
 });

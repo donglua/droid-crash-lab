@@ -4,6 +4,9 @@ coverage/
 .DS_Store
 .superpowers/
 *.log
+.tmp/
+test-results/
+playwright-report/
 .omx/*
 !.omx/plans/
 .omx/plans/*

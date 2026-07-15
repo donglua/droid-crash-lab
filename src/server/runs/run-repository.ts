@@ -11,7 +11,7 @@ import {
 import { join } from "node:path";
 import type { Readable } from "node:stream";
 import { ZipArchive } from "archiver";
-import type { Issue, RunEvent, RunSummary } from "../../shared/contracts.js";
+import type { Issue, RawLogRangeResponse, RunEvent, RunSummary } from "../../shared/contracts.js";
 import { runIdSchema, type RunId } from "../../shared/schemas.js";
 import { isInvalidMetadataError, parseIssues, parseRunSummary } from "./run-storage-schema.js";
 
@@ -126,6 +126,17 @@ export class RunRepository {
     }
     void archive.finalize();
     return archive;
+  }
+
+  async readLogRange(runId: RunId, startLine: number, endLine: number): Promise<RawLogRangeResponse> {
+    await this.assertRunExists(runId);
+    const raw = await readFile(join(this.runDirectory(runId), "logcat.txt"), "utf8");
+    const allLines = raw.endsWith("\n") ? raw.slice(0, -1).split("\n") : raw.split("\n");
+    const lines = allLines.slice(startLine - 1, endLine).map((line, index) => ({
+      lineNumber: startLine + index,
+      line,
+    }));
+    return { startLine, endLine: startLine + lines.length - 1, lines };
   }
 
   private async readHistoryEntry(runId: RunId): Promise<RunHistoryEntry> {

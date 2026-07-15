@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Play, Square, Upload } from "lucide-react";
+import { Download, Play, Rocket, Square, Upload } from "lucide-react";
 import type { RunConfig } from "../../../shared/contracts.js";
 
 type ApkDisplay = {
@@ -12,12 +12,15 @@ type RunSetupProps = {
   readonly canOperate: boolean;
   readonly apk?: ApkDisplay;
   readonly running: boolean;
+  readonly operationStatus?: string;
   readonly onFileSelect?: (file: File) => void;
+  readonly onInstall: () => void;
+  readonly onLaunch: () => void;
   readonly onStart: (config: RunConfig) => void;
   readonly onStop: () => void;
 };
 
-export function RunSetup({ canOperate, apk, running, onFileSelect, onStart, onStop }: RunSetupProps) {
+export function RunSetup({ canOperate, apk, running, operationStatus, onFileSelect, onInstall, onLaunch, onStart, onStop }: RunSetupProps) {
   const [mode, setMode] = useState<RunConfig["mode"]>("manual");
   const [eventCount, setEventCount] = useState(10_000);
   const [throttleMs, setThrottleMs] = useState(350);
@@ -63,9 +66,14 @@ export function RunSetup({ canOperate, apk, running, onFileSelect, onStart, onSt
           {running ? (
             <button className="button is-danger" type="button" onClick={onStop}><Square size={16} aria-hidden="true" />停止测试</button>
           ) : (
-            <button className="button" type="button" disabled={!canOperate || apk === undefined} onClick={() => onStart(config)}><Play size={16} aria-hidden="true" />开始测试</button>
+            <>
+              <button className="button is-secondary" type="button" disabled={!canOperate || apk === undefined} onClick={onInstall}><Download size={16} aria-hidden="true" />覆盖安装</button>
+              <button className="button is-secondary" type="button" disabled={!canOperate || apk === undefined} onClick={onLaunch}><Rocket size={16} aria-hidden="true" />启动应用</button>
+              <button className="button" type="button" disabled={!canOperate || apk === undefined} onClick={() => onStart(config)}><Play size={16} aria-hidden="true" />开始测试</button>
+            </>
           )}
         </div>
+        {operationStatus === undefined ? null : <p className="operation-status" role="status">{operationStatus}</p>}
       </div>
     </section>
   );

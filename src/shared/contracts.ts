@@ -200,6 +200,17 @@ export type RunDetailsResponse = {
   readonly issues: readonly Issue[];
 };
 
+export type RawLogLine = {
+  readonly lineNumber: number;
+  readonly line: string;
+};
+
+export type RawLogRangeResponse = {
+  readonly startLine: number;
+  readonly endLine: number;
+  readonly lines: readonly RawLogLine[];
+};
+
 export type ApiErrorResponse = {
   readonly error: {
     readonly code: string;

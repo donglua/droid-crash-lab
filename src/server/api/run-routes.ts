@@ -1,5 +1,5 @@
 import type { FastifyInstance, FastifyReply } from "fastify";
-import { lastEventIdSchema, runIdParamsSchema, startRunRequestSchema } from "../../shared/schemas.js";
+import { lastEventIdSchema, rawLogRangeQuerySchema, runIdParamsSchema, startRunRequestSchema } from "../../shared/schemas.js";
 import type { RunEvent } from "../../shared/contracts.js";
 import type { AppDependencies } from "./api-types.js";
 
@@ -20,6 +20,13 @@ export function registerRunRoutes(app: FastifyInstance, dependencies: AppDepende
     if (params === undefined) return;
     const details = await dependencies.runs.details(params.id);
     return details ?? reply.code(404).send(apiError("RUN_NOT_FOUND", "Run not found"));
+  });
+  app.get("/api/runs/:id/logs", async (request, reply) => {
+    const params = parseRunId(request.params, reply);
+    if (params === undefined) return;
+    const query = rawLogRangeQuerySchema.safeParse(request.query);
+    if (!query.success) return reply.code(400).send(apiError("INVALID_LOG_RANGE", "Invalid raw log range"));
+    return dependencies.runs.logRange(params.id, query.data.startLine, query.data.endLine);
   });
   app.get("/api/runs/:id/archive", async (request, reply) => {
     const params = parseRunId(request.params, reply);

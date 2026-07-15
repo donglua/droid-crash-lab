@@ -4,6 +4,7 @@ import type {
   DevicesResponse,
   EnvironmentResponse,
   Issue,
+  RawLogRangeResponse,
   RunEvent,
   RunSummary,
 } from "../../shared/contracts.js";
@@ -34,6 +35,7 @@ export type AppDependencies = {
     readonly details: (
       runId: RunId,
     ) => Promise<{ readonly run: RunSummary; readonly issues: readonly Issue[] } | undefined>;
+    readonly logRange: (runId: RunId, startLine: number, endLine: number) => Promise<RawLogRangeResponse>;
     readonly archive: (runId: RunId) => Promise<Readable>;
     readonly events: (
       listener: (event: RunEvent) => void,

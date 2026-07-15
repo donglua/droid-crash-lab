@@ -20,6 +20,14 @@ describe("run routes and SSE", () => {
         stop: async () => run("completed"),
         list: async () => [run("completed")],
         details: async () => ({ run: run("completed"), issues: [] }),
+        logRange: async () => ({
+          startLine: 10,
+          endLine: 11,
+          lines: [
+            { lineNumber: 10, line: "FATAL EXCEPTION: main" },
+            { lineNumber: 11, line: "java.lang.IllegalStateException" },
+          ],
+        }),
         archive: async () => Readable.from([Buffer.from("zip")]),
       },
     });
@@ -29,7 +37,27 @@ describe("run routes and SSE", () => {
     expect((await app.inject({ method: "POST", url: "/api/runs/20260715T020304Z-a1b2c3/stop" })).json()).toMatchObject({ run: { state: "completed" } });
     expect((await app.inject({ method: "GET", url: "/api/runs" })).json()).toMatchObject({ runs: [{ state: "completed" }] });
     expect((await app.inject({ method: "GET", url: "/api/runs/20260715T020304Z-a1b2c3" })).statusCode).toBe(200);
+    expect((await app.inject({ method: "GET", url: "/api/runs/20260715T020304Z-a1b2c3/logs?startLine=10&endLine=11" })).json()).toEqual({
+      startLine: 10,
+      endLine: 11,
+      lines: [
+        { lineNumber: 10, line: "FATAL EXCEPTION: main" },
+        { lineNumber: 11, line: "java.lang.IllegalStateException" },
+      ],
+    });
     expect((await app.inject({ method: "GET", url: "/api/runs/20260715T020304Z-a1b2c3/archive" })).headers["content-type"]).toContain("application/zip");
+  });
+
+  it("rejects invalid raw log ranges at the HTTP boundary", async () => {
+    const app = await buildApp(dependencies());
+    apps.push(app);
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/runs/20260715T020304Z-a1b2c3/logs?startLine=20&endLine=10",
+    });
+
+    expect(response.statusCode).toBe(400);
   });
 
   it("streams an immediate state snapshot and browser disconnect does not stop the run", async () => {

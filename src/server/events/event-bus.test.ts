@@ -37,6 +37,18 @@ describe("RunEventBus", () => {
     expect(received).toHaveLength(1);
   });
 
+  it("replays current non-log state to a first subscriber that connects after progress", () => {
+    const bus = new RunEventBus({ replayLimit: 8, now: () => "2026-07-15T02:03:04.000Z" });
+    bus.publish({ type: "state", state: "running" });
+    bus.publish({ type: "log", lineNumber: 1, level: "info", line: "raw" });
+    bus.publish({ type: "progress", progress: { completedEvents: 250, totalEvents: 500 } });
+    const received: RunEvent[] = [];
+
+    bus.subscribe((event) => received.push(event));
+
+    expect(received.map((event) => event.type)).toEqual(["state", "progress"]);
+  });
+
   it("replays bounded non-log events after Last-Event-ID without replaying raw logs", () => {
     const bus = new RunEventBus({ replayLimit: 2, now: () => "2026-07-15T02:03:04.000Z" });
     bus.publish({ type: "state", state: "running" });

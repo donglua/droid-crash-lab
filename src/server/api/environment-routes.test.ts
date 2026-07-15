@@ -44,6 +44,7 @@ export function dependencies(): AppDependencies {
       stop: async () => { throw new Error("unused"); },
       list: async () => [],
       details: async () => undefined,
+      logRange: async () => { throw new Error("unused"); },
       archive: async () => { throw new Error("unused"); },
       events: () => () => undefined,
     },

@@ -6,7 +6,7 @@ import { RunSetup } from "./RunSetup.js";
 describe("RunSetup", () => {
   it("switches to Monkey mode and enforces bounded numeric inputs", async () => {
     const user = userEvent.setup();
-    render(<RunSetup canOperate onStart={vi.fn()} onStop={vi.fn()} running={false} />);
+    render(<RunSetup canOperate onInstall={vi.fn()} onLaunch={vi.fn()} onStart={vi.fn()} onStop={vi.fn()} running={false} />);
 
     await user.click(screen.getByRole("radio", { name: "Monkey" }));
     expect(screen.getByLabelText("事件数")).toHaveAttribute("min", "1");
@@ -20,6 +20,8 @@ describe("RunSetup", () => {
       <RunSetup
         canOperate
         apk={{ applicationId: "cn.example.app", versionName: "1.2.3", versionCode: "123" }}
+        onInstall={vi.fn()}
+        onLaunch={vi.fn()}
         onStart={vi.fn()}
         onStop={vi.fn()}
         running

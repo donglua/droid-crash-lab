@@ -41,10 +41,9 @@ export class RunEventBus {
 
   subscribe(listener: RunEventListener, afterId?: EventId): () => void {
     if (this.currentState !== undefined) listener(this.currentState);
-    if (afterId !== undefined) {
-      for (const event of this.replay) {
-        if (event.id > afterId && event.id !== this.currentState?.id) listener(event);
-      }
+    const replayAfter = afterId ?? eventIdSchema.parse(0);
+    for (const event of this.replay) {
+      if (event.id > replayAfter && event.id !== this.currentState?.id) listener(event);
     }
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);

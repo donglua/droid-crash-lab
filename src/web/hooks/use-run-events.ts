@@ -8,8 +8,13 @@ export function useRunEvents(runId: string | undefined) {
   const [connection, setConnection] = useState<RunEventConnection>("idle");
 
   useEffect(() => {
+    setEvents([]);
     if (runId === undefined) {
       setConnection("idle");
+      return;
+    }
+    if (typeof EventSource === "undefined") {
+      setConnection("closed");
       return;
     }
     setConnection("connecting");

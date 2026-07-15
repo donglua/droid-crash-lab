@@ -102,6 +102,14 @@ export const runIdParamsSchema = z
   })
   .readonly();
 
+export const rawLogRangeQuerySchema = z
+  .strictObject({
+    startLine: z.coerce.number().int().positive(),
+    endLine: z.coerce.number().int().positive(),
+  })
+  .refine(({ startLine, endLine }) => endLine >= startLine && endLine - startLine <= 2_000)
+  .readonly();
+
 export const lastEventIdSchema = z
   .string()
   .regex(/^(?:0|[1-9]\d*)$/u)
@@ -112,6 +120,7 @@ export type InstallApkRequest = z.output<typeof installApkRequestSchema>;
 export type LaunchAppRequest = z.output<typeof launchAppRequestSchema>;
 export type StartRunRequest = z.output<typeof startRunRequestSchema>;
 export type RunIdParams = z.output<typeof runIdParamsSchema>;
+export type RawLogRangeQuery = z.output<typeof rawLogRangeQuerySchema>;
 
 export const environmentResponseSchema = z.strictObject({
   adb: z.strictObject({
@@ -160,3 +169,28 @@ export const runSummarySchema = z.strictObject({
 });
 
 export const runsResponseSchema = z.strictObject({ runs: z.array(runSummarySchema) });
+
+export const issueSchema = z.strictObject({
+  id: z.string(),
+  type: z.enum(["java", "anr", "native", "oom"]),
+  timestamp: z.string(),
+  processName: z.string(),
+  threadName: z.string().optional(),
+  summary: z.string(),
+  exceptionClass: z.string().optional(),
+  topApplicationFrame: z.string().optional(),
+  fingerprint: z.string(),
+  occurrenceCount: z.number().int().positive(),
+  occurrenceTimestamps: z.array(z.string()),
+  rawLogStartLine: z.number().int().positive(),
+  rawLogEndLine: z.number().int().positive(),
+  monkeyProgress: z.strictObject({ completedEvents: z.number().int().nonnegative(), totalEvents: z.number().int().nonnegative() }).optional(),
+  labels: z.array(z.literal("di")).optional(),
+});
+
+export const runDetailsResponseSchema = z.strictObject({ run: runSummarySchema, issues: z.array(issueSchema) });
+export const rawLogRangeResponseSchema = z.strictObject({
+  startLine: z.number().int().positive(),
+  endLine: z.number().int().positive(),
+  lines: z.array(z.strictObject({ lineNumber: z.number().int().positive(), line: z.string() })),
+});

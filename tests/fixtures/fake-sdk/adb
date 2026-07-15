@@ -4,20 +4,45 @@ import { appendFileSync } from "node:fs";
 
 const args = process.argv.slice(2);
 const callsPath = process.env.FAKE_ADB_CALLS;
-if (callsPath !== undefined) {
-  appendFileSync(callsPath, `${JSON.stringify(args)}\n`, "utf8");
+if (callsPath !== undefined) appendFileSync(callsPath, `${JSON.stringify(args)}\n`, "utf8");
+
+if (args[0] === "devices") {
+  process.stdout.write("List of devices attached\nemulator-5554 device product:sdk model:Pixel_9 transport_id:1\n");
+  process.exit(0);
+}
+if (args.includes("logcat") && args.includes("-c")) {
+  process.exit(0);
+}
+if (args.includes("logcat")) {
+  const crash = [
+    "07-15 10:00:00.000  100  100 E AndroidRuntime: FATAL EXCEPTION: main",
+    "07-15 10:00:00.001  100  100 E AndroidRuntime: Process: cn.jingzhuan.stock, PID: 100",
+    "07-15 10:00:00.002  100  100 E AndroidRuntime: java.lang.IllegalStateException: E2E crash",
+    "07-15 10:00:00.003  100  100 E AndroidRuntime:     at cn.jingzhuan.stock.MainActivity.open(MainActivity.kt:42)",
+    "07-15 10:00:01.000  200  200 I ActivityTaskManager: unrelated",
+  ].join("\n");
+  setTimeout(() => process.stdout.write(`${crash}\n`), 120);
+  await keepAlive();
+}
+if (args.includes("monkey")) {
+  setTimeout(() => process.stdout.write("Events injected: 250\n"), 80);
+  setTimeout(() => process.stdout.write("Events injected: 500\n"), 160);
+  if (process.env.FAKE_MONKEY_AUTO_EXIT === "1") setTimeout(() => process.exit(0), 220);
+  await keepAlive();
 }
 
-const operation = args.includes("resolve-activity")
-  ? "RESOLVE"
-  : args.includes("install")
-    ? "INSTALL"
-    : "LAUNCH";
-const exitCode = Number.parseInt(
-  process.env[`FAKE_ADB_${operation}_EXIT_CODE`] ?? process.env.FAKE_ADB_EXIT_CODE ?? "0",
-  10,
-);
+const operation = args.includes("resolve-activity") ? "RESOLVE" : args.includes("install") ? "INSTALL" : "LAUNCH";
+const exitCode = Number.parseInt(process.env[`FAKE_ADB_${operation}_EXIT_CODE`] ?? process.env.FAKE_ADB_EXIT_CODE ?? "0", 10);
 const defaultOutput = operation === "RESOLVE" ? "cn.jingzhuan.stock/.MainActivity\n" : "Success\n";
 process.stdout.write(process.env[`FAKE_ADB_${operation}_STDOUT`] ?? defaultOutput);
 process.stderr.write(process.env[`FAKE_ADB_${operation}_STDERR`] ?? "");
 process.exit(exitCode);
+
+function keepAlive() {
+  return new Promise(() => {
+    const timer = setInterval(() => undefined, 1_000);
+    const stop = () => { clearInterval(timer); process.exit(0); };
+    process.on("SIGTERM", stop);
+    process.on("SIGINT", stop);
+  });
+}

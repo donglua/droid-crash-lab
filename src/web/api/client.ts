@@ -1,18 +1,35 @@
-import type { DevicesResponse, EnvironmentResponse, RunsResponse, RunSummary } from "../../shared/contracts.js";
+import type { ApkInfo, DevicesResponse, EnvironmentResponse, Issue, RawLogRangeResponse, RunConfig, RunDetailsResponse, RunsResponse, RunSummary } from "../../shared/contracts.js";
 import {
   devicesResponseSchema,
   environmentResponseSchema,
+  rawLogRangeResponseSchema,
+  runDetailsResponseSchema,
   runsResponseSchema,
+  apkInfoSchema,
+  runSummarySchema,
 } from "../../shared/schemas.js";
 
 export type ApiClient = {
   readonly environment: () => Promise<EnvironmentResponse>;
   readonly devices: () => Promise<DevicesResponse>;
   readonly runs: () => Promise<RunsResponse>;
+  readonly inspectApk: (file: File) => Promise<ApkInfo>;
+  readonly installApk: (apkToken: ApkInfo["token"], deviceSerial: DevicesResponse["selectedSerial"] & string) => Promise<{ readonly installed: true }>;
+  readonly launchApp: (apkToken: ApkInfo["token"], deviceSerial: DevicesResponse["selectedSerial"] & string) => Promise<{ readonly launched: true }>;
+  readonly runDetails: (runId: RunSummary["id"]) => Promise<RunDetailsResponse>;
+  readonly logRange: (runId: RunSummary["id"], startLine: number, endLine: number) => Promise<RawLogRangeResponse>;
+  readonly startRun: (input: { readonly apkToken: ApkInfo["token"]; readonly deviceSerial: DevicesResponse["selectedSerial"] & string; readonly config: RunConfig }) => Promise<RunSummary>;
+  readonly stopRun: (runId: RunSummary["id"]) => Promise<RunSummary>;
 };
 
 async function getJson(url: string): Promise<unknown> {
   const response = await fetch(url, { headers: { accept: "application/json" } });
+  if (!response.ok) throw new HttpResponseError(response.status, url);
+  return response.json();
+}
+
+async function requestJson(url: string, init: RequestInit): Promise<unknown> {
+  const response = await fetch(url, init);
   if (!response.ok) throw new HttpResponseError(response.status, url);
   return response.json();
 }
@@ -29,6 +46,29 @@ export const apiClient: ApiClient = {
   environment: async () => parseEnvironment(await getJson("/api/environment")),
   devices: async () => parseDevices(await getJson("/api/devices")),
   runs: async () => parseRuns(await getJson("/api/runs")),
+  inspectApk: async (file) => {
+    const form = new FormData();
+    form.append("apk", file, file.name);
+    const value = await requestJson("/api/apks/inspect", { method: "POST", body: form });
+    if (typeof value !== "object" || value === null || !("apk" in value)) throw new TypeError("Missing APK response");
+    return parseApk(value.apk);
+  },
+  installApk: async (apkToken, deviceSerial) => {
+    const value = await requestJson("/api/apks/install", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ apkToken, deviceSerial }) });
+    if (typeof value !== "object" || value === null || !("installed" in value) || value.installed !== true) throw new TypeError("Missing install response");
+    return { installed: true };
+  },
+  launchApp: async (apkToken, deviceSerial) => {
+    const value = await requestJson("/api/apps/launch", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ apkToken, deviceSerial }) });
+    if (typeof value !== "object" || value === null || !("launched" in value) || value.launched !== true) throw new TypeError("Missing launch response");
+    return { launched: true };
+  },
+  runDetails: async (runId) => parseRunDetails(await getJson(`/api/runs/${runId}`)),
+  logRange: async (runId, startLine, endLine) => rawLogRangeResponseSchema.parse(await getJson(`/api/runs/${runId}/logs?startLine=${startLine}&endLine=${endLine}`)),
+  startRun: async (input) => parseRunEnvelope(await requestJson("/api/runs", {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(input),
+  })),
+  stopRun: async (runId) => parseRunEnvelope(await requestJson(`/api/runs/${runId}/stop`, { method: "POST" })),
 };
 
 function parseEnvironment(value: unknown): EnvironmentResponse {
@@ -87,4 +127,39 @@ function parseRunSummary(parsed: ReturnType<typeof runsResponseSchema.parse>["ru
     ...(parsed.completedAt === undefined ? {} : { completedAt: parsed.completedAt }),
     ...(parsed.monkeyProgress === undefined ? {} : { monkeyProgress: parsed.monkeyProgress }),
   };
+}
+
+function parseApk(value: unknown): ApkInfo {
+  return apkInfoSchema.parse(value);
+}
+
+function parseRunDetails(value: unknown): RunDetailsResponse {
+  const parsed = runDetailsResponseSchema.parse(value);
+  return { run: parseRunSummary(parsed.run), issues: parsed.issues.map(parseIssue) };
+}
+
+function parseIssue(parsed: ReturnType<typeof runDetailsResponseSchema.parse>["issues"][number]): Issue {
+  const base = {
+    id: parsed.id,
+    timestamp: parsed.timestamp,
+    processName: parsed.processName,
+    summary: parsed.summary,
+    fingerprint: parsed.fingerprint,
+    occurrenceCount: parsed.occurrenceCount,
+    occurrenceTimestamps: parsed.occurrenceTimestamps,
+    rawLogStartLine: parsed.rawLogStartLine,
+    rawLogEndLine: parsed.rawLogEndLine,
+    ...(parsed.threadName === undefined ? {} : { threadName: parsed.threadName }),
+    ...(parsed.exceptionClass === undefined ? {} : { exceptionClass: parsed.exceptionClass }),
+    ...(parsed.topApplicationFrame === undefined ? {} : { topApplicationFrame: parsed.topApplicationFrame }),
+    ...(parsed.monkeyProgress === undefined ? {} : { monkeyProgress: parsed.monkeyProgress }),
+  };
+  return parsed.type === "java"
+    ? { ...base, type: "java", ...(parsed.labels === undefined ? {} : { labels: parsed.labels }) }
+    : { ...base, type: parsed.type };
+}
+
+function parseRunEnvelope(value: unknown): RunSummary {
+  if (typeof value !== "object" || value === null || !("run" in value)) throw new TypeError("Missing run response");
+  return parseRunSummary(runSummarySchema.parse(value.run));
 }
