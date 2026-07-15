@@ -1,0 +1,7 @@
+# DroidCrashLab
+
+Local-only Android crash inspection console.
+
+- The service listens on 127.0.0.1.
+- The Web UI controls explicitly selected Android devices through predefined ADB operations.
+- API routes are under /api/ and are not intended for remote or autonomous access.
