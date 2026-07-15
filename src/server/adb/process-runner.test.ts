@@ -1,4 +1,4 @@
-import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { access, chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -154,6 +154,33 @@ describe("streamProcess", () => {
     expect(result.kind).toBe("exited");
   });
 
+  it("force-kills a child that ignores the graceful stop signal", async () => {
+    // Given
+    const script = await fixtureScript(
+      'process.on("SIGTERM", () => {}); process.stdout.write("ready\\n"); setTimeout(() => process.exit(99), 500);\n',
+    );
+    let announceReady: (() => void) | undefined;
+    const ready = new Promise<void>((resolveReady) => {
+      announceReady = resolveReady;
+    });
+    const handle = streamProcess(script, [], {
+      terminationGraceMs: 20,
+      onStdout: (chunk) => {
+        if (chunk.includes("ready")) {
+          announceReady?.();
+        }
+      },
+    });
+    await ready;
+
+    // When
+    handle.stop();
+    const result = await handle.completion;
+
+    // Then
+    expect(result).toMatchObject({ kind: "signaled", signal: "SIGKILL" });
+  });
+
   it("terminates and resolves as aborted when its AbortSignal fires", async () => {
     // Given
     const script = await fixtureScript(
@@ -180,5 +207,36 @@ describe("streamProcess", () => {
 
     // Then
     expect(result.kind).toBe("aborted");
+  });
+
+  it("force-kills an aborted child that ignores SIGTERM", async () => {
+    // Given
+    const script = await fixtureScript(
+      'const { writeFileSync } = require("node:fs"); process.on("SIGTERM", () => {}); process.stdout.write("ready\\n"); setTimeout(() => { writeFileSync(process.argv[2], "survived"); process.exit(99); }, 500);\n',
+    );
+    const survivalMarker = join(script, "..", "survived.txt");
+    const controller = new AbortController();
+    let announceReady: (() => void) | undefined;
+    const ready = new Promise<void>((resolveReady) => {
+      announceReady = resolveReady;
+    });
+    const handle = streamProcess(script, [survivalMarker], {
+      signal: controller.signal,
+      terminationGraceMs: 20,
+      onStdout: (chunk) => {
+        if (chunk.includes("ready")) {
+          announceReady?.();
+        }
+      },
+    });
+    await ready;
+
+    // When
+    controller.abort();
+    const result = await handle.completion;
+
+    // Then
+    expect(result.kind).toBe("aborted");
+    await expect(access(survivalMarker)).rejects.toThrow();
   });
 });

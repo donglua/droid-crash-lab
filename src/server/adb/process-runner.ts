@@ -1,5 +1,7 @@
 import { spawn } from "node:child_process";
 
+const DEFAULT_TERMINATION_GRACE_MS = 1_000;
+
 export class ProcessSpawnError extends Error {
   override readonly name = "ProcessSpawnError";
   readonly args: readonly string[];
@@ -43,6 +45,7 @@ export type StreamProcessOptions = {
   readonly signal?: AbortSignal;
   readonly onStdout?: (chunk: string) => void;
   readonly onStderr?: (chunk: string) => void;
+  readonly terminationGraceMs?: number;
 };
 
 export type StreamingProcess = {
@@ -73,7 +76,9 @@ export function streamProcess(
   let settled = false;
   let stopRequested = false;
   let aborted = false;
+  let forceKillTimer: NodeJS.Timeout | undefined;
   let removeAbortListener = (): void => undefined;
+  let terminate = (): void => undefined;
 
   const completion = new Promise<ProcessResult>((resolveCompletion) => {
     const settle = (result: ProcessResult): void => {
@@ -81,8 +86,21 @@ export function streamProcess(
         return;
       }
       settled = true;
+      if (forceKillTimer !== undefined) {
+        clearTimeout(forceKillTimer);
+      }
       removeAbortListener();
       resolveCompletion(result);
+    };
+
+    terminate = (): void => {
+      child.kill("SIGTERM");
+      forceKillTimer = setTimeout(() => {
+        if (!settled) {
+          child.kill("SIGKILL");
+        }
+      }, options.terminationGraceMs ?? DEFAULT_TERMINATION_GRACE_MS);
+      forceKillTimer.unref();
     };
 
     child.stdout.setEncoding("utf8");
@@ -119,7 +137,7 @@ export function streamProcess(
       }
       aborted = true;
       stopRequested = true;
-      child.kill("SIGTERM");
+      terminate();
     };
     if (options.signal !== undefined) {
       options.signal.addEventListener("abort", abort, { once: true });
@@ -139,7 +157,7 @@ export function streamProcess(
         return false;
       }
       stopRequested = true;
-      child.kill("SIGTERM");
+      terminate();
       return true;
     },
   };
