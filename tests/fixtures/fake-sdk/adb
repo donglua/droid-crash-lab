@@ -1,0 +1,23 @@
+#!/usr/bin/env node
+
+import { appendFileSync } from "node:fs";
+
+const args = process.argv.slice(2);
+const callsPath = process.env.FAKE_ADB_CALLS;
+if (callsPath !== undefined) {
+  appendFileSync(callsPath, `${JSON.stringify(args)}\n`, "utf8");
+}
+
+const operation = args.includes("resolve-activity")
+  ? "RESOLVE"
+  : args.includes("install")
+    ? "INSTALL"
+    : "LAUNCH";
+const exitCode = Number.parseInt(
+  process.env[`FAKE_ADB_${operation}_EXIT_CODE`] ?? process.env.FAKE_ADB_EXIT_CODE ?? "0",
+  10,
+);
+const defaultOutput = operation === "RESOLVE" ? "cn.jingzhuan.stock/.MainActivity\n" : "Success\n";
+process.stdout.write(process.env[`FAKE_ADB_${operation}_STDOUT`] ?? defaultOutput);
+process.stderr.write(process.env[`FAKE_ADB_${operation}_STDERR`] ?? "");
+process.exit(exitCode);

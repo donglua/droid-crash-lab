@@ -1,0 +1,20 @@
+#!/usr/bin/env node
+
+const exitCode = Number.parseInt(process.env.FAKE_APKANALYZER_EXIT_CODE ?? "0", 10);
+if (exitCode !== 0) {
+  process.stderr.write(process.env.FAKE_APKANALYZER_STDERR ?? "apkanalyzer failed\n");
+  process.exit(exitCode);
+}
+
+const command = process.argv.slice(2, -1).join(" ");
+const values = {
+  "manifest application-id": "cn.jingzhuan.stock",
+  "manifest version-name": "6.187.04-beta",
+  "manifest version-code": "61870400",
+};
+const value = values[command];
+if (value === undefined) {
+  process.stderr.write(`unsupported command: ${command}\n`);
+  process.exit(2);
+}
+process.stdout.write(`${value}\n`);
