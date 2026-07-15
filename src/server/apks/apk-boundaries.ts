@@ -1,0 +1,42 @@
+import { z } from "zod";
+
+import type { MetadataField } from "./apk-errors.js";
+
+const metadataSchemas = {
+  "application-id": z
+    .string()
+    .regex(/^[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)+$/u),
+  "version-name": z.string().min(1).max(255).regex(/^[^\r\n]+$/u),
+  "version-code": z.string().regex(/^(?:0|[1-9]\d*)$/u),
+} as const satisfies Record<MetadataField, z.ZodType<string>>;
+
+const componentPartSchema = z
+  .string()
+  .min(1)
+  .refine((value) => !/[\p{Cc}]/u.test(value));
+
+export function parseMetadataOutput(
+  field: MetadataField,
+  output: string,
+): string | undefined {
+  const result = metadataSchemas[field].safeParse(output.trim());
+  return result.success ? result.data : undefined;
+}
+
+export function parseLauncherComponent(output: string): string | undefined {
+  const lines = output.split(/\r?\n/u).filter((line) => line.length > 0);
+  if (lines.length !== 1) {
+    return undefined;
+  }
+  const line = lines[0];
+  if (line === undefined) {
+    return undefined;
+  }
+  const separator = line.indexOf("/");
+  if (separator < 1) {
+    return undefined;
+  }
+  const packageName = componentPartSchema.safeParse(line.slice(0, separator));
+  const className = componentPartSchema.safeParse(line.slice(separator + 1));
+  return packageName.success && className.success ? line : undefined;
+}
