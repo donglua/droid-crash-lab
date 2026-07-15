@@ -4,3 +4,7 @@ coverage/
 .DS_Store
 .superpowers/
 *.log
+.omx/*
+!.omx/plans/
+.omx/plans/*
+!.omx/plans/*.md
