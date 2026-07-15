@@ -1,10 +1,35 @@
 import { z } from "zod";
 
-import type { RunConfig } from "./contracts.js";
-
 const eventCountSchema = z.number().int().min(1).max(1_000_000);
 const throttleMsSchema = z.number().int().min(0).max(10_000);
 const seedSchema = z.number().int().min(-2_147_483_648).max(2_147_483_647);
+const RUN_ID_PATTERN = /^\d{8}T\d{6}Z-[0-9a-f]{6}$/u;
+
+function hasCanonicalUtcTimestamp(value: string): boolean {
+  if (!RUN_ID_PATTERN.test(value)) {
+    return false;
+  }
+
+  const year = Number(value.slice(0, 4));
+  const month = Number(value.slice(4, 6));
+  const day = Number(value.slice(6, 8));
+  const hour = Number(value.slice(9, 11));
+  const minute = Number(value.slice(11, 13));
+  const second = Number(value.slice(13, 15));
+  const timestamp = new Date(0);
+
+  timestamp.setUTCFullYear(year, month - 1, day);
+  timestamp.setUTCHours(hour, minute, second, 0);
+
+  return (
+    timestamp.getUTCFullYear() === year &&
+    timestamp.getUTCMonth() === month - 1 &&
+    timestamp.getUTCDate() === day &&
+    timestamp.getUTCHours() === hour &&
+    timestamp.getUTCMinutes() === minute &&
+    timestamp.getUTCSeconds() === second
+  );
+}
 
 const manualRunConfigSchema = z.strictObject({
   mode: z.literal("manual"),
@@ -19,19 +44,35 @@ const monkeyRunConfigSchema = z.strictObject({
 
 export const runConfigSchema = z
   .discriminatedUnion("mode", [manualRunConfigSchema, monkeyRunConfigSchema])
-  .readonly() satisfies z.ZodType<RunConfig>;
+  .readonly();
 
-export const apkTokenSchema = z.uuid();
+export type RunConfig = z.output<typeof runConfigSchema>;
+
+export const apkTokenSchema = z.uuid().brand<"ApkToken">();
+export type ApkToken = z.output<typeof apkTokenSchema>;
 
 export const deviceSerialSchema = z
   .string()
   .min(1)
   .max(255)
-  .regex(/^[!-~]+$/u);
+  .regex(/^[!-~]+$/u)
+  .brand<"DeviceSerial">();
+export type DeviceSerial = z.output<typeof deviceSerialSchema>;
 
 export const runIdSchema = z
   .string()
-  .regex(/^\d{8}T\d{6}Z-[0-9a-f]{6}$/u);
+  .regex(RUN_ID_PATTERN)
+  .refine(hasCanonicalUtcTimestamp)
+  .brand<"RunId">();
+export type RunId = z.output<typeof runIdSchema>;
+
+export const eventIdSchema = z
+  .number()
+  .int()
+  .nonnegative()
+  .safe()
+  .brand<"EventId">();
+export type EventId = z.output<typeof eventIdSchema>;
 
 export const installApkRequestSchema = z
   .strictObject({
@@ -65,7 +106,7 @@ export const lastEventIdSchema = z
   .string()
   .regex(/^(?:0|[1-9]\d*)$/u)
   .transform((value) => Number(value))
-  .pipe(z.number().int().nonnegative().safe());
+  .pipe(eventIdSchema);
 
 export type InstallApkRequest = z.output<typeof installApkRequestSchema>;
 export type LaunchAppRequest = z.output<typeof launchAppRequestSchema>;

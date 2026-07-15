@@ -1,3 +1,19 @@
+import type {
+  ApkToken,
+  DeviceSerial,
+  EventId,
+  RunConfig,
+  RunId,
+} from "./schemas.js";
+
+export type {
+  ApkToken,
+  DeviceSerial,
+  EventId,
+  RunConfig,
+  RunId,
+} from "./schemas.js";
+
 export const DEVICE_STATES = ["device", "offline", "unauthorized"] as const;
 export type DeviceState = (typeof DEVICE_STATES)[number];
 
@@ -34,7 +50,7 @@ export const LOG_LEVELS = [
 export type LogLevel = (typeof LOG_LEVELS)[number];
 
 export type DeviceInfo = {
-  readonly serial: string;
+  readonly serial: DeviceSerial;
   readonly state: DeviceState;
   readonly model?: string;
   readonly product?: string;
@@ -42,28 +58,15 @@ export type DeviceInfo = {
 };
 
 export type ApkInfo = {
-  readonly token: string;
+  readonly token: ApkToken;
   readonly applicationId: string;
   readonly versionName: string;
   readonly versionCode: string;
   readonly storedPath: string;
 };
 
-export type ManualRunConfig = {
-  readonly mode: "manual";
-  readonly eventCount?: never;
-  readonly throttleMs?: never;
-  readonly seed?: never;
-};
-
-export type MonkeyRunConfig = {
-  readonly mode: "monkey";
-  readonly eventCount: number;
-  readonly throttleMs: number;
-  readonly seed: number;
-};
-
-export type RunConfig = ManualRunConfig | MonkeyRunConfig;
+export type ManualRunConfig = Extract<RunConfig, { readonly mode: "manual" }>;
+export type MonkeyRunConfig = Extract<RunConfig, { readonly mode: "monkey" }>;
 
 export type MonkeyProgress = {
   readonly completedEvents: number;
@@ -71,7 +74,7 @@ export type MonkeyProgress = {
 };
 
 export type RunSummary = {
-  readonly id: string;
+  readonly id: RunId;
   readonly state: RunState;
   readonly config: RunConfig;
   readonly device: DeviceInfo;
@@ -111,7 +114,7 @@ export type Issue = IssueBase &
   );
 
 type RunEventBase = {
-  readonly id: number;
+  readonly id: EventId;
   readonly timestamp: string;
 };
 
@@ -161,7 +164,7 @@ export type EnvironmentResponse = {
 
 export type DevicesResponse = {
   readonly devices: readonly DeviceInfo[];
-  readonly selectedSerial?: string;
+  readonly selectedSerial?: DeviceSerial;
 };
 
 export type InspectApkResponse = {
@@ -170,14 +173,14 @@ export type InspectApkResponse = {
 
 export type InstallApkResponse = {
   readonly installed: true;
-  readonly apkToken: string;
-  readonly deviceSerial: string;
+  readonly apkToken: ApkToken;
+  readonly deviceSerial: DeviceSerial;
 };
 
 export type LaunchAppResponse = {
   readonly launched: true;
   readonly applicationId: string;
-  readonly deviceSerial: string;
+  readonly deviceSerial: DeviceSerial;
 };
 
 export type StartRunResponse = {

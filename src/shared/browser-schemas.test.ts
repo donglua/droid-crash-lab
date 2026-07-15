@@ -91,6 +91,83 @@ describe("runIdSchema", () => {
     // Then
     expect(result.success).toBe(false);
   });
+
+  it("parses a run ID on a valid leap day", () => {
+    // Given
+    const input = "20240229T235959Z-a1b2c3";
+
+    // When
+    const result = runIdSchema.safeParse(input);
+
+    // Then
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects a run ID with an invalid month", () => {
+    // Given
+    const input = "20261301T120000Z-a1b2c3";
+
+    // When
+    const result = runIdSchema.safeParse(input);
+
+    // Then
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects a run ID with an invalid day", () => {
+    // Given
+    const input = "20260431T120000Z-a1b2c3";
+
+    // When
+    const result = runIdSchema.safeParse(input);
+
+    // Then
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects a run ID with a non-leap-year February 29", () => {
+    // Given
+    const input = "20230229T120000Z-a1b2c3";
+
+    // When
+    const result = runIdSchema.safeParse(input);
+
+    // Then
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects a run ID with an invalid hour", () => {
+    // Given
+    const input = "20260714T240000Z-a1b2c3";
+
+    // When
+    const result = runIdSchema.safeParse(input);
+
+    // Then
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects a run ID with an invalid minute", () => {
+    // Given
+    const input = "20260714T126000Z-a1b2c3";
+
+    // When
+    const result = runIdSchema.safeParse(input);
+
+    // Then
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects a run ID with an invalid second", () => {
+    // Given
+    const input = "20260714T120060Z-a1b2c3";
+
+    // When
+    const result = runIdSchema.safeParse(input);
+
+    // Then
+    expect(result.success).toBe(false);
+  });
 });
 
 describe("installApkRequestSchema", () => {
