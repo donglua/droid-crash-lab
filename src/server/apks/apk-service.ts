@@ -187,6 +187,10 @@ export class ApkService {
     });
   }
 
+  get(token: ApkToken): ApkInfo {
+    return this.snapshotApk(this.requireApk(token));
+  }
+
   private requireApk(token: ApkToken): ApkInfo {
     const apk = this.apks.get(token);
     if (apk === undefined) {

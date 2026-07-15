@@ -145,6 +145,10 @@ export class DeviceService {
     return () => this.listeners.delete(listener);
   }
 
+  current(): DevicesResponse {
+    return this.snapshot();
+  }
+
   private async discover(context: RefreshContext): Promise<DevicesResponse> {
     const signal = context.kind === "polling" ? context.controller.signal : undefined;
     const result = await this.processRunner(

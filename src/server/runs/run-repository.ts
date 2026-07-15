@@ -11,21 +11,9 @@ import {
 import { join } from "node:path";
 import type { Readable } from "node:stream";
 import { ZipArchive } from "archiver";
-import { z } from "zod";
-import {
-  DEVICE_STATES,
-  RUN_STATES,
-  type Issue,
-  type RunEvent,
-  type RunSummary,
-} from "../../shared/contracts.js";
-import {
-  apkTokenSchema,
-  deviceSerialSchema,
-  runConfigSchema,
-  runIdSchema,
-  type RunId,
-} from "../../shared/schemas.js";
+import type { Issue, RunEvent, RunSummary } from "../../shared/contracts.js";
+import { runIdSchema, type RunId } from "../../shared/schemas.js";
+import { isInvalidMetadataError, parseIssues, parseRunSummary } from "./run-storage-schema.js";
 
 const RUN_FILES = [
   "metadata.json",
@@ -35,39 +23,6 @@ const RUN_FILES = [
   "install.txt",
   "issues.json",
 ] as const;
-
-const deviceSchema = z.strictObject({
-  serial: deviceSerialSchema,
-  state: z.enum(DEVICE_STATES),
-  model: z.string().optional(),
-  product: z.string().optional(),
-  transportId: z.string().optional(),
-});
-
-const apkSchema = z.strictObject({
-  token: apkTokenSchema,
-  applicationId: z.string(),
-  versionName: z.string(),
-  versionCode: z.string(),
-  storedPath: z.string(),
-});
-
-const runSummarySchema = z.strictObject({
-  id: runIdSchema,
-  state: z.enum(RUN_STATES),
-  config: runConfigSchema,
-  device: deviceSchema,
-  apk: apkSchema,
-  startedAt: z.iso.datetime(),
-  completedAt: z.iso.datetime().optional(),
-  issueCount: z.number().int().nonnegative(),
-  monkeyProgress: z
-    .strictObject({
-      completedEvents: z.number().int().nonnegative(),
-      totalEvents: z.number().int().nonnegative(),
-    })
-    .optional(),
-});
 
 export type RunHistoryEntry =
   | { readonly kind: "readable"; readonly summary: RunSummary }
@@ -149,6 +104,19 @@ export class RunRepository {
     return Promise.all(runIds.map((runId) => this.readHistoryEntry(runId)));
   }
 
+  async details(runId: RunId): Promise<{ readonly run: RunSummary; readonly issues: readonly Issue[] }> {
+    await this.assertRunExists(runId);
+    const directory = this.runDirectory(runId);
+    const [metadata, issues] = await Promise.all([
+      readFile(join(directory, "metadata.json"), "utf8"),
+      readFile(join(directory, "issues.json"), "utf8"),
+    ]);
+    return {
+      run: parseRunSummary(JSON.parse(metadata)),
+      issues: parseIssues(JSON.parse(issues)),
+    };
+  }
+
   async createArchive(runId: RunId): Promise<Readable> {
     await this.assertRunExists(runId);
     const archive = new ZipArchive({ zlib: { level: 9 } });
@@ -206,32 +174,4 @@ export class RunRepository {
 function createRunId(): RunId {
   const timestamp = new Date().toISOString().replaceAll(/[-:]/gu, "").replace(/\.\d{3}Z$/u, "Z");
   return runIdSchema.parse(`${timestamp}-${randomBytes(3).toString("hex")}`);
-}
-
-function parseRunSummary(value: unknown): RunSummary {
-  const parsed = runSummarySchema.parse(value);
-  return {
-    id: parsed.id,
-    state: parsed.state,
-    config: parsed.config,
-    device: {
-      serial: parsed.device.serial,
-      state: parsed.device.state,
-      ...(parsed.device.model === undefined ? {} : { model: parsed.device.model }),
-      ...(parsed.device.product === undefined ? {} : { product: parsed.device.product }),
-      ...(parsed.device.transportId === undefined
-        ? {}
-        : { transportId: parsed.device.transportId }),
-    },
-    apk: parsed.apk,
-    startedAt: parsed.startedAt,
-    issueCount: parsed.issueCount,
-    ...(parsed.completedAt === undefined ? {} : { completedAt: parsed.completedAt }),
-    ...(parsed.monkeyProgress === undefined ? {} : { monkeyProgress: parsed.monkeyProgress }),
-  };
-}
-
-function isInvalidMetadataError(error: unknown): boolean {
-  if (error instanceof SyntaxError || error instanceof z.ZodError) return true;
-  return error instanceof Error && "code" in error && error.code === "ENOENT";
 }
