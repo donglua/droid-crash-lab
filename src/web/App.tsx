@@ -2,6 +2,10 @@ import { useEffect, useState } from "react";
 import type { DevicesResponse, EnvironmentResponse } from "../shared/contracts.js";
 import { apiClient } from "./api/client.js";
 import { AppShell } from "./components/AppShell.js";
+import { IssueList } from "./features/current-run/IssueList.js";
+import { LogConsole } from "./features/current-run/LogConsole.js";
+import { RunSetup } from "./features/current-run/RunSetup.js";
+import { StatusMetrics } from "./features/current-run/StatusMetrics.js";
 
 export function App() {
   const [environment, setEnvironment] = useState<EnvironmentResponse | undefined>();
@@ -34,23 +38,12 @@ export function App() {
       </section>
       {loadFailed ? <p className="load-error" role="alert">无法读取本地服务状态，请确认服务已启动。</p> : null}
       <div className="dashboard-grid">
-        <section className="panel" aria-labelledby="setup-title">
-          <div className="panel-heading"><h3 id="setup-title">测试准备</h3></div>
-          <div className="setup-row">
-            <label className="field-label">APK 文件<span className="file-placeholder">尚未选择 APK</span></label>
-            <button className="button" type="button" disabled={selected === undefined}>开始测试</button>
-          </div>
-        </section>
-        <section className="metrics" aria-label="运行指标">
-          <div className="metric"><span>运行状态</span><strong>待机</strong></div>
-          <div className="metric"><span>运行时长</span><strong>00:00</strong></div>
-          <div className="metric"><span>问题数量</span><strong>0</strong></div>
-          <div className="metric"><span>Monkey 进度</span><strong>—</strong></div>
-        </section>
-        <section className="panel">
-          <div className="panel-heading"><h3>实时结果</h3></div>
-          <p className="empty-copy">测试启动后，此处将显示崩溃问题和实时日志。</p>
-        </section>
+        <RunSetup canOperate={selected !== undefined} running={false} onStart={() => undefined} onStop={() => undefined} />
+        <StatusMetrics state="idle" elapsed="00:00" issueCount={0} />
+        <div className="content-split">
+          <IssueList issues={[]} onSelect={() => undefined} />
+          <LogConsole lines={[]} />
+        </div>
       </div>
     </AppShell>
   );
