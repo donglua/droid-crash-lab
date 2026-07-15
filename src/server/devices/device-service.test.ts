@@ -1,17 +1,14 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { ProcessResult } from "../adb/process-runner.js";
 import {
   DeviceService,
-  parseAdbDevices,
   type DeviceProcessRunner,
   type DeviceServiceEvent,
 } from "./device-service.js";
 
-const THREE_DEVICE_FIXTURE = `List of devices attached
-emulator-5554 device product:sdk_gphone64_arm64 model:sdk_gphone64_arm64 device:emu64a transport_id:1
-R58M123456F offline product:dreamlte model:SM_G950F transport_id:2
-ZX1G22 unauthorized usb:1-1 transport_id:3
+const AVAILABLE_DEVICE_FIXTURE = `List of devices attached
+emulator-5554 device transport_id:1
 `;
 
 function exited(stdout: string): ProcessResult {
@@ -34,43 +31,42 @@ class TestListenerError extends Error {
   override readonly name = "TestListenerError";
 }
 
-describe("parseAdbDevices", () => {
-  it("parses device states and long-list metadata", () => {
-    // Given
-    const output = THREE_DEVICE_FIXTURE;
+afterEach(() => vi.useRealTimers());
 
-    // When
-    const devices = parseAdbDevices(output);
+class DeferredDeviceRunner {
+  readonly signals: (AbortSignal | undefined)[] = [];
+  readonly run: DeviceProcessRunner = (_executable, _args, options) => {
+    this.inFlight += 1;
+    this.peakInFlight = Math.max(this.peakInFlight, this.inFlight);
+    this.signals.push(options?.signal);
+    return new Promise((resolve) => {
+      this.completions.push((result) => {
+        this.inFlight -= 1;
+        resolve(result);
+      });
+    });
+  };
+  peakInFlight = 0;
+  private inFlight = 0;
+  private readonly completions: ((result: ProcessResult) => void)[] = [];
 
-    // Then
-    expect(devices).toEqual([
-      {
-        serial: "emulator-5554",
-        state: "device",
-        product: "sdk_gphone64_arm64",
-        model: "sdk_gphone64_arm64",
-        transportId: "1",
-      },
-      {
-        serial: "R58M123456F",
-        state: "offline",
-        product: "dreamlte",
-        model: "SM_G950F",
-        transportId: "2",
-      },
-      {
-        serial: "ZX1G22",
-        state: "unauthorized",
-        transportId: "3",
-      },
-    ]);
-  });
-});
+  get requestCount(): number {
+    return this.signals.length;
+  }
+
+  settle(index: number, result: ProcessResult): void {
+    const complete = this.completions[index];
+    if (complete === undefined) {
+      throw new RangeError(`Deferred request ${index} does not exist`);
+    }
+    complete(result);
+  }
+}
 
 describe("DeviceService", () => {
   it("auto-selects the only available device", async () => {
     // Given
-    const service = new DeviceService("/sdk/adb", sequenceRunner([THREE_DEVICE_FIXTURE]));
+    const service = new DeviceService("/sdk/adb", sequenceRunner([AVAILABLE_DEVICE_FIXTURE]));
 
     // When
     const snapshot = await service.refresh();
@@ -83,10 +79,7 @@ describe("DeviceService", () => {
     // Given
     const first = `List of devices attached\nfirst device transport_id:1\n`;
     const multiple = `List of devices attached\nfirst device transport_id:1\nsecond device transport_id:2\n`;
-    const service = new DeviceService(
-      "/sdk/adb",
-      sequenceRunner([first, multiple]),
-    );
+    const service = new DeviceService("/sdk/adb", sequenceRunner([first, multiple]));
     await service.refresh();
 
     // When
@@ -136,34 +129,20 @@ describe("DeviceService", () => {
 
       // Then
       expect(runner).toHaveBeenCalledTimes(1);
-      completeRequest?.(exited(THREE_DEVICE_FIXTURE));
+      completeRequest?.(exited(AVAILABLE_DEVICE_FIXTURE));
       await pendingResult;
       await vi.advanceTimersByTimeAsync(10);
       expect(runner).toHaveBeenCalledTimes(2);
     } finally {
       service.stopPolling();
-      vi.useRealTimers();
     }
   });
 
   it("aborts a polling request and suppresses its stale completion after stop", async () => {
     // Given
     vi.useFakeTimers();
-    let requestSignal: AbortSignal | undefined;
-    let completeRequest: ((result: ProcessResult) => void) | undefined;
-    const runner = vi.fn(
-      (
-        _executable: string,
-        _args: readonly string[],
-        options?: { readonly signal?: AbortSignal },
-      ) => {
-        requestSignal = options?.signal;
-        return new Promise<ProcessResult>((resolve) => {
-          completeRequest = resolve;
-        });
-      },
-    );
-    const service = new DeviceService("/sdk/adb", runner);
+    const deferred = new DeferredDeviceRunner();
+    const service = new DeviceService("/sdk/adb", deferred.run);
     const events: DeviceServiceEvent[] = [];
     service.onChange((event) => events.push(event));
 
@@ -173,15 +152,14 @@ describe("DeviceService", () => {
 
       // When
       service.stopPolling();
-      completeRequest?.(exited(THREE_DEVICE_FIXTURE));
+      deferred.settle(0, exited(AVAILABLE_DEVICE_FIXTURE));
       await vi.advanceTimersByTimeAsync(0);
 
       // Then
-      expect(requestSignal?.aborted).toBe(true);
+      expect(deferred.signals[0]?.aborted).toBe(true);
       expect(events).toEqual([]);
     } finally {
       service.stopPolling();
-      vi.useRealTimers();
     }
   });
 
@@ -219,17 +197,14 @@ describe("DeviceService", () => {
       expect(requestSettled).toBe(true);
     } finally {
       service.stopPolling();
-      vi.useRealTimers();
     }
   });
 
-  it("restarts polling while a stale stopped request remains pending", async () => {
+  it("waits for a stopped request to retire before restarted polling continues", async () => {
     // Given
     vi.useFakeTimers();
-    const runner = vi.fn(
-      async (): Promise<ProcessResult> => new Promise(() => undefined),
-    );
-    const service = new DeviceService("/sdk/adb", runner);
+    const deferred = new DeferredDeviceRunner();
+    const service = new DeviceService("/sdk/adb", deferred.run);
     service.startPolling(10);
     await vi.advanceTimersByTimeAsync(10);
     service.stopPolling();
@@ -237,34 +212,25 @@ describe("DeviceService", () => {
     try {
       // When
       service.startPolling(10);
-      await vi.advanceTimersByTimeAsync(10);
+      await vi.advanceTimersByTimeAsync(30);
 
       // Then
-      expect(runner).toHaveBeenCalledTimes(2);
+      expect(deferred.requestCount).toBe(1);
+      expect(deferred.peakInFlight).toBe(1);
+      deferred.settle(0, { kind: "aborted", stdout: "", stderr: "" });
+      await vi.advanceTimersByTimeAsync(10);
+      expect(deferred.requestCount).toBe(2);
+      expect(deferred.peakInFlight).toBe(1);
     } finally {
       service.stopPolling();
-      vi.useRealTimers();
     }
   });
 
   it("does not abort a manual refresh coalesced with polling", async () => {
     // Given
     vi.useFakeTimers();
-    let requestSignal: AbortSignal | undefined;
-    let completeRequest: ((result: ProcessResult) => void) | undefined;
-    const runner = vi.fn(
-      (
-        _executable: string,
-        _args: readonly string[],
-        options?: { readonly signal?: AbortSignal },
-      ) => {
-        requestSignal = options?.signal;
-        return new Promise<ProcessResult>((resolve) => {
-          completeRequest = resolve;
-        });
-      },
-    );
-    const service = new DeviceService("/sdk/adb", runner);
+    const deferred = new DeferredDeviceRunner();
+    const service = new DeviceService("/sdk/adb", deferred.run);
     service.startPolling(10);
     await vi.advanceTimersByTimeAsync(10);
     const manualRefresh = service.refresh();
@@ -272,15 +238,47 @@ describe("DeviceService", () => {
     try {
       // When
       service.stopPolling();
-      completeRequest?.(exited(THREE_DEVICE_FIXTURE));
+      deferred.settle(0, exited(AVAILABLE_DEVICE_FIXTURE));
       const snapshot = await manualRefresh;
 
       // Then
-      expect(requestSignal?.aborted).toBe(false);
+      expect(deferred.signals[0]?.aborted).toBe(false);
       expect(snapshot.selectedSerial).toBe("emulator-5554");
     } finally {
       service.stopPolling();
-      vi.useRealTimers();
+    }
+  });
+
+  it("coalesces manual refreshes after an aborted polling request retires", async () => {
+    // Given
+    vi.useFakeTimers();
+    const deferred = new DeferredDeviceRunner();
+    const service = new DeviceService("/sdk/adb", deferred.run);
+    const events: DeviceServiceEvent[] = [];
+    service.onChange((event) => events.push(event));
+    service.startPolling(10);
+    await vi.advanceTimersByTimeAsync(10);
+    service.stopPolling();
+
+    try {
+      // When
+      const firstRefresh = service.refresh();
+      const secondRefresh = service.refresh();
+
+      // Then
+      expect(deferred.requestCount).toBe(1);
+      expect(deferred.signals[0]?.aborted).toBe(true);
+      deferred.settle(0, { kind: "aborted", stdout: "", stderr: "" });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(events).toEqual([]);
+      expect(deferred.requestCount).toBe(2);
+      expect(deferred.peakInFlight).toBe(1);
+      deferred.settle(1, exited(AVAILABLE_DEVICE_FIXTURE));
+      const snapshots = await Promise.all([firstRefresh, secondRefresh]);
+      expect(snapshots[0]).toEqual(snapshots[1]);
+      expect(events).toHaveLength(1);
+    } finally {
+      service.stopPolling();
     }
   });
 
@@ -289,11 +287,7 @@ describe("DeviceService", () => {
     vi.useFakeTimers();
     const reported: unknown[] = [];
     const laterEvents: DeviceServiceEvent[] = [];
-    const service = new DeviceService(
-      "/sdk/adb",
-      sequenceRunner([THREE_DEVICE_FIXTURE]),
-      (error) => reported.push(error),
-    );
+    const service = new DeviceService("/sdk/adb", sequenceRunner([AVAILABLE_DEVICE_FIXTURE]), (error) => reported.push(error));
     service.onChange(() => {
       throw new TestListenerError();
     });
@@ -309,16 +303,12 @@ describe("DeviceService", () => {
       expect(laterEvents).toHaveLength(1);
     } finally {
       service.stopPolling();
-      vi.useRealTimers();
     }
   });
 
   it("stops notifying a listener after unsubscribe", async () => {
     // Given
-    const service = new DeviceService(
-      "/sdk/adb",
-      sequenceRunner([THREE_DEVICE_FIXTURE]),
-    );
+    const service = new DeviceService("/sdk/adb", sequenceRunner([AVAILABLE_DEVICE_FIXTURE]));
     const listener = vi.fn();
     const unsubscribe = service.onChange(listener);
 

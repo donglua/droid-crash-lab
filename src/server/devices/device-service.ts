@@ -2,13 +2,11 @@ import type { DeviceInfo, DevicesResponse } from "../../shared/contracts.js";
 import { deviceSerialSchema } from "../../shared/schemas.js";
 import type { DeviceSerial } from "../../shared/schemas.js";
 import { runProcess } from "../adb/process-runner.js";
-import type { ProcessResult, StreamProcessOptions } from "../adb/process-runner.js";
+import { DeviceDiscoveryError, parseAdbDevices } from "./device-discovery.js";
+import type { DeviceProcessRunner } from "./device-discovery.js";
 
-export type DeviceProcessRunner = (
-  executable: string,
-  args: readonly string[],
-  options?: Pick<StreamProcessOptions, "signal">,
-) => Promise<ProcessResult>;
+export { DeviceDiscoveryError, parseAdbDevices } from "./device-discovery.js";
+export type { DeviceProcessRunner } from "./device-discovery.js";
 
 export type DeviceServiceErrorSink = (error: unknown) => void;
 
@@ -34,53 +32,12 @@ type ActiveRefresh = {
   readonly promise: Promise<DevicesResponse>;
 };
 
-export class DeviceDiscoveryError extends Error {
-  override readonly name = "DeviceDiscoveryError";
-
-  constructor(readonly result: ProcessResult) {
-    super("ADB device discovery failed");
-  }
-}
-
 export class DeviceSelectionError extends Error {
   override readonly name = "DeviceSelectionError";
 
   constructor(readonly serial: string) {
     super(`Device ${serial} is not available for selection`);
   }
-}
-
-export function parseAdbDevices(output: string): readonly DeviceInfo[] {
-  const devices: DeviceInfo[] = [];
-  for (const rawLine of output.split(/\r?\n/u)) {
-    const line = rawLine.trim();
-    if (line.length === 0 || line === "List of devices attached") {
-      continue;
-    }
-    const [serialValue, stateValue, ...properties] = line.split(/\s+/u);
-    if (serialValue === undefined || !isDeviceState(stateValue)) {
-      continue;
-    }
-    const serial = deviceSerialSchema.safeParse(serialValue);
-    if (!serial.success) {
-      continue;
-    }
-    const metadata = parseMetadata(properties);
-    devices.push({
-      serial: serial.data,
-      state: stateValue,
-      ...(metadata["model"] === undefined
-        ? {}
-        : { model: metadata["model"] }),
-      ...(metadata["product"] === undefined
-        ? {}
-        : { product: metadata["product"] }),
-      ...(metadata["transport_id"] === undefined
-        ? {}
-        : { transportId: metadata["transport_id"] }),
-    });
-  }
-  return devices;
 }
 
 export class DeviceService {
@@ -99,10 +56,18 @@ export class DeviceService {
 
   refresh(): Promise<DevicesResponse> {
     if (this.activeRefresh !== undefined) {
-      if (this.activeRefresh.context.kind === "polling") {
-        this.activeRefresh.context.manualConsumer = true;
+      const { context, promise } = this.activeRefresh;
+      if (context.kind === "manual") {
+        return promise;
       }
-      return this.activeRefresh.promise;
+      if (!context.controller.signal.aborted) {
+        context.manualConsumer = true;
+        return promise;
+      }
+      return promise.then(
+        () => this.refresh(),
+        () => this.refresh(),
+      );
     }
     return this.beginRefresh({ kind: "manual" });
   }
@@ -155,7 +120,6 @@ export class DeviceService {
     const context = this.activeRefresh?.context;
     if (context?.kind === "polling" && !context.manualConsumer) {
       context.controller.abort();
-      this.activeRefresh = undefined;
     }
   }
 
@@ -256,23 +220,4 @@ export class DeviceService {
       );
     }
   }
-}
-
-function isDeviceState(
-  value: string | undefined,
-): value is DeviceInfo["state"] {
-  return (
-    value === "device" || value === "offline" || value === "unauthorized"
-  );
-}
-
-function parseMetadata(properties: readonly string[]): Readonly<Record<string, string>> {
-  const metadata: Record<string, string> = {};
-  for (const property of properties) {
-    const separator = property.indexOf(":");
-    if (separator > 0) {
-      metadata[property.slice(0, separator)] = property.slice(separator + 1);
-    }
-  }
-  return metadata;
 }
