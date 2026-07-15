@@ -13,9 +13,8 @@ import {
 } from "../../shared/schemas.js";
 import { RunRepository } from "./run-repository.js";
 
-function summary(id = "20260715T020304Z-a1b2c3"): RunSummary {
+function summary(): Omit<RunSummary, "id"> {
   return {
-    id: runIdSchema.parse(id),
     state: "running",
     config: { mode: "manual" },
     device: { serial: deviceSerialSchema.parse("emulator-5554"), state: "device", model: "Pixel_9" },

@@ -73,6 +73,8 @@ export type RunHistoryEntry =
   | { readonly kind: "readable"; readonly summary: RunSummary }
   | { readonly kind: "unreadable"; readonly id: RunId; readonly reason: "invalid metadata" };
 
+export type CreateRunSummary = Omit<RunSummary, "id">;
+
 export class RunNotFoundError extends Error {
   override readonly name = "RunNotFoundError";
 
@@ -91,7 +93,7 @@ export class RunRepository {
     this.runsRoot = join(dataRoot, "runs");
   }
 
-  async create(input: RunSummary): Promise<RunSummary> {
+  async create(input: CreateRunSummary): Promise<RunSummary> {
     await mkdir(this.runsRoot, { recursive: true });
     const summary = { ...input, id: this.generateRunId() };
     const directory = this.runDirectory(summary.id);
