@@ -30,6 +30,10 @@ function sequenceRunner(outputs: readonly string[]): DeviceProcessRunner {
   };
 }
 
+class TestListenerError extends Error {
+  override readonly name = "TestListenerError";
+}
+
 describe("parseAdbDevices", () => {
   it("parses device states and long-list metadata", () => {
     // Given
@@ -140,5 +144,189 @@ describe("DeviceService", () => {
       service.stopPolling();
       vi.useRealTimers();
     }
+  });
+
+  it("aborts a polling request and suppresses its stale completion after stop", async () => {
+    // Given
+    vi.useFakeTimers();
+    let requestSignal: AbortSignal | undefined;
+    let completeRequest: ((result: ProcessResult) => void) | undefined;
+    const runner = vi.fn(
+      (
+        _executable: string,
+        _args: readonly string[],
+        options?: { readonly signal?: AbortSignal },
+      ) => {
+        requestSignal = options?.signal;
+        return new Promise<ProcessResult>((resolve) => {
+          completeRequest = resolve;
+        });
+      },
+    );
+    const service = new DeviceService("/sdk/adb", runner);
+    const events: DeviceServiceEvent[] = [];
+    service.onChange((event) => events.push(event));
+
+    try {
+      service.startPolling(10);
+      await vi.advanceTimersByTimeAsync(10);
+
+      // When
+      service.stopPolling();
+      completeRequest?.(exited(THREE_DEVICE_FIXTURE));
+      await vi.advanceTimersByTimeAsync(0);
+
+      // Then
+      expect(requestSignal?.aborted).toBe(true);
+      expect(events).toEqual([]);
+    } finally {
+      service.stopPolling();
+      vi.useRealTimers();
+    }
+  });
+
+  it("settles a hung polling request through abort", async () => {
+    // Given
+    vi.useFakeTimers();
+    let requestSettled = false;
+    const runner = vi.fn(
+      async (
+        _executable: string,
+        _args: readonly string[],
+        options?: { readonly signal?: AbortSignal },
+      ): Promise<ProcessResult> =>
+        new Promise((resolve) => {
+          options?.signal?.addEventListener(
+            "abort",
+            () => {
+              resolve({ kind: "aborted", stdout: "", stderr: "" });
+              requestSettled = true;
+            },
+            { once: true },
+          );
+        }),
+    );
+    const service = new DeviceService("/sdk/adb", runner);
+    service.startPolling(10);
+    await vi.advanceTimersByTimeAsync(10);
+
+    try {
+      // When
+      service.stopPolling();
+      await vi.advanceTimersByTimeAsync(0);
+
+      // Then
+      expect(requestSettled).toBe(true);
+    } finally {
+      service.stopPolling();
+      vi.useRealTimers();
+    }
+  });
+
+  it("restarts polling while a stale stopped request remains pending", async () => {
+    // Given
+    vi.useFakeTimers();
+    const runner = vi.fn(
+      async (): Promise<ProcessResult> => new Promise(() => undefined),
+    );
+    const service = new DeviceService("/sdk/adb", runner);
+    service.startPolling(10);
+    await vi.advanceTimersByTimeAsync(10);
+    service.stopPolling();
+
+    try {
+      // When
+      service.startPolling(10);
+      await vi.advanceTimersByTimeAsync(10);
+
+      // Then
+      expect(runner).toHaveBeenCalledTimes(2);
+    } finally {
+      service.stopPolling();
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not abort a manual refresh coalesced with polling", async () => {
+    // Given
+    vi.useFakeTimers();
+    let requestSignal: AbortSignal | undefined;
+    let completeRequest: ((result: ProcessResult) => void) | undefined;
+    const runner = vi.fn(
+      (
+        _executable: string,
+        _args: readonly string[],
+        options?: { readonly signal?: AbortSignal },
+      ) => {
+        requestSignal = options?.signal;
+        return new Promise<ProcessResult>((resolve) => {
+          completeRequest = resolve;
+        });
+      },
+    );
+    const service = new DeviceService("/sdk/adb", runner);
+    service.startPolling(10);
+    await vi.advanceTimersByTimeAsync(10);
+    const manualRefresh = service.refresh();
+
+    try {
+      // When
+      service.stopPolling();
+      completeRequest?.(exited(THREE_DEVICE_FIXTURE));
+      const snapshot = await manualRefresh;
+
+      // Then
+      expect(requestSignal?.aborted).toBe(false);
+      expect(snapshot.selectedSerial).toBe("emulator-5554");
+    } finally {
+      service.stopPolling();
+      vi.useRealTimers();
+    }
+  });
+
+  it("isolates a throwing listener and reports it to the error sink", async () => {
+    // Given
+    vi.useFakeTimers();
+    const reported: unknown[] = [];
+    const laterEvents: DeviceServiceEvent[] = [];
+    const service = new DeviceService(
+      "/sdk/adb",
+      sequenceRunner([THREE_DEVICE_FIXTURE]),
+      (error) => reported.push(error),
+    );
+    service.onChange(() => {
+      throw new TestListenerError();
+    });
+    service.onChange((event) => laterEvents.push(event));
+
+    try {
+      // When
+      service.startPolling(10);
+      await vi.advanceTimersByTimeAsync(10);
+
+      // Then
+      expect(reported).toEqual([expect.any(TestListenerError)]);
+      expect(laterEvents).toHaveLength(1);
+    } finally {
+      service.stopPolling();
+      vi.useRealTimers();
+    }
+  });
+
+  it("stops notifying a listener after unsubscribe", async () => {
+    // Given
+    const service = new DeviceService(
+      "/sdk/adb",
+      sequenceRunner([THREE_DEVICE_FIXTURE]),
+    );
+    const listener = vi.fn();
+    const unsubscribe = service.onChange(listener);
+
+    // When
+    unsubscribe();
+    await service.refresh();
+
+    // Then
+    expect(listener).not.toHaveBeenCalled();
   });
 });

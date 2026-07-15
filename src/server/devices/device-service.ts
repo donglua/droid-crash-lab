@@ -2,12 +2,15 @@ import type { DeviceInfo, DevicesResponse } from "../../shared/contracts.js";
 import { deviceSerialSchema } from "../../shared/schemas.js";
 import type { DeviceSerial } from "../../shared/schemas.js";
 import { runProcess } from "../adb/process-runner.js";
-import type { ProcessResult } from "../adb/process-runner.js";
+import type { ProcessResult, StreamProcessOptions } from "../adb/process-runner.js";
 
 export type DeviceProcessRunner = (
   executable: string,
   args: readonly string[],
+  options?: Pick<StreamProcessOptions, "signal">,
 ) => Promise<ProcessResult>;
+
+export type DeviceServiceErrorSink = (error: unknown) => void;
 
 export type DeviceServiceEvent =
   | ({ readonly type: "change" } & DevicesResponse)
@@ -16,6 +19,20 @@ export type DeviceServiceEvent =
   | { readonly type: "error"; readonly error: DeviceDiscoveryError };
 
 export type DeviceServiceListener = (event: DeviceServiceEvent) => void;
+
+type PollingRefreshContext = {
+  readonly kind: "polling";
+  readonly controller: AbortController;
+  readonly generation: number;
+  manualConsumer: boolean;
+};
+
+type RefreshContext = { readonly kind: "manual" } | PollingRefreshContext;
+
+type ActiveRefresh = {
+  readonly context: RefreshContext;
+  readonly promise: Promise<DevicesResponse>;
+};
 
 export class DeviceDiscoveryError extends Error {
   override readonly name = "DeviceDiscoveryError";
@@ -70,23 +87,33 @@ export class DeviceService {
   private devices: readonly DeviceInfo[] = [];
   private selectedSerial: DeviceSerial | undefined;
   private readonly listeners = new Set<DeviceServiceListener>();
-  private refreshInFlight: Promise<DevicesResponse> | undefined;
+  private activeRefresh: ActiveRefresh | undefined;
   private pollingTimer: NodeJS.Timeout | undefined;
+  private pollingGeneration = 0;
 
   constructor(
     private readonly adbExecutable: string,
     private readonly processRunner: DeviceProcessRunner = runProcess,
+    private readonly errorSink: DeviceServiceErrorSink = () => undefined,
   ) {}
 
   refresh(): Promise<DevicesResponse> {
-    if (this.refreshInFlight !== undefined) {
-      return this.refreshInFlight;
+    if (this.activeRefresh !== undefined) {
+      if (this.activeRefresh.context.kind === "polling") {
+        this.activeRefresh.context.manualConsumer = true;
+      }
+      return this.activeRefresh.promise;
     }
-    const request = this.discover();
-    this.refreshInFlight = request;
+    return this.beginRefresh({ kind: "manual" });
+  }
+
+  private beginRefresh(context: RefreshContext): Promise<DevicesResponse> {
+    const request = this.discover(context);
+    const activeRefresh = { context, promise: request };
+    this.activeRefresh = activeRefresh;
     const clearRequest = (): void => {
-      if (this.refreshInFlight === request) {
-        this.refreshInFlight = undefined;
+      if (this.activeRefresh === activeRefresh) {
+        this.activeRefresh = undefined;
       }
     };
     request.then(clearRequest, clearRequest);
@@ -96,24 +123,39 @@ export class DeviceService {
   startPolling(intervalMs: number): void {
     this.stopPolling();
     this.pollingTimer = setInterval(() => {
-      if (this.refreshInFlight !== undefined) {
+      if (this.activeRefresh !== undefined) {
         return;
       }
-      void this.refresh().catch((error: unknown) => {
-        if (error instanceof DeviceDiscoveryError) {
-          this.emit({ type: "error", error });
+      const context: PollingRefreshContext = {
+        kind: "polling",
+        controller: new AbortController(),
+        generation: this.pollingGeneration,
+        manualConsumer: false,
+      };
+      void this.beginRefresh(context).catch((error: unknown) => {
+        if (!this.shouldApply(context)) {
           return;
         }
-        throw error;
+        if (error instanceof DeviceDiscoveryError) {
+          this.emit({ type: "error", error });
+        } else {
+          this.reportError(error);
+        }
       });
     }, intervalMs);
     this.pollingTimer.unref();
   }
 
   stopPolling(): void {
+    this.pollingGeneration += 1;
     if (this.pollingTimer !== undefined) {
       clearInterval(this.pollingTimer);
       this.pollingTimer = undefined;
+    }
+    const context = this.activeRefresh?.context;
+    if (context?.kind === "polling" && !context.manualConsumer) {
+      context.controller.abort();
+      this.activeRefresh = undefined;
     }
   }
 
@@ -139,8 +181,16 @@ export class DeviceService {
     return () => this.listeners.delete(listener);
   }
 
-  private async discover(): Promise<DevicesResponse> {
-    const result = await this.processRunner(this.adbExecutable, ["devices", "-l"]);
+  private async discover(context: RefreshContext): Promise<DevicesResponse> {
+    const signal = context.kind === "polling" ? context.controller.signal : undefined;
+    const result = await this.processRunner(
+      this.adbExecutable,
+      ["devices", "-l"],
+      signal === undefined ? {} : { signal },
+    );
+    if (!this.shouldApply(context)) {
+      return this.snapshot();
+    }
     if (result.kind !== "exited" || result.exitCode !== 0) {
       throw new DeviceDiscoveryError(result);
     }
@@ -181,7 +231,29 @@ export class DeviceService {
 
   private emit(event: DeviceServiceEvent): void {
     for (const listener of this.listeners) {
-      listener(event);
+      try {
+        listener(event);
+      } catch (error) {
+        this.reportError(error instanceof Error ? error : String(error));
+      }
+    }
+  }
+
+  private shouldApply(context: RefreshContext): boolean {
+    return (
+      context.kind === "manual" ||
+      context.manualConsumer ||
+      context.generation === this.pollingGeneration
+    );
+  }
+
+  private reportError(error: unknown): void {
+    try {
+      this.errorSink(error);
+    } catch (sinkError) {
+      process.emitWarning(
+        sinkError instanceof Error ? sinkError : String(sinkError),
+      );
     }
   }
 }
