@@ -118,6 +118,22 @@ describe("locateTool", () => {
     });
   });
 
+  it("finds the default macOS user SDK when launched outside a shell", async () => {
+    // Given
+    const home = await temporaryDirectory();
+    const adb = await executable(join(home, "Library", "Android", "sdk", "platform-tools", "adb"));
+
+    // When
+    const result = await locateTool("adb", { PATH: "", HOME: home });
+
+    // Then
+    expect(result).toEqual({
+      kind: "found",
+      tool: "adb",
+      executablePath: await realpath(adb),
+    });
+  });
+
   it("finds apkanalyzer in the legacy SDK tools layout", async () => {
     // Given
     const sdk = await temporaryDirectory();

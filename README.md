@@ -27,6 +27,24 @@ npm start
 
 打开 <http://127.0.0.1:4319>。
 
+## macOS 桌面版
+
+桌面版复用同一套 React 页面和 Fastify 服务。Electron 启动服务后，在随机本机端口打开应用窗口，因此不会占用固定的 `4319` 端口。
+
+桌面版不包含 Android SDK。运行前仍需安装 Android SDK。服务依次检查 `PATH`、`ANDROID_HOME`、`ANDROID_SDK_ROOT` 和 macOS 默认目录 `~/Library/Android/sdk`。
+
+本地启动与打包：
+
+```bash
+npm run desktop
+CSC_IDENTITY_AUTO_DISCOVERY=false npm run package:mac -- --arm64
+CSC_IDENTITY_AUTO_DISCOVERY=false npm run package:mac -- --x64
+```
+
+`.dmg` 和 `.zip` 产物写入 `release/`。GitHub 上发布 `v*` Release 时，Actions 自动构建并上传 arm64 与 x64 两种架构的产物。
+
+首版不包含 Apple 签名与公证。macOS 可能阻止直接打开下载的应用；可在 Finder 中按住 Control 键点按应用并选择「打开」，或前往「系统设置 > 隐私与安全性」确认打开。
+
 ## 使用流程
 
 1. 确认顶部显示「ADB 已就绪」和目标设备。
@@ -102,6 +120,7 @@ npm run typecheck
 npm test
 npm run build
 npm run test:e2e
+npm run test:electron
 ```
 
 E2E 使用真实 Fastify 服务和 fake Android SDK，覆盖 APK 检查、显式安装与启动、人工 Crash、原始日志范围、问题报告、历史归档、设置、Monkey 进度，以及 `375x812`、`768x1024`、`1280x800` 三个视口。

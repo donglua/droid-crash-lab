@@ -122,7 +122,7 @@ function HistoryView({ history }: { readonly history: readonly RunSummary[] }) {
 }
 
 function SettingsView({ environment }: { readonly environment: EnvironmentResponse | undefined }) {
-  return <><section className="page-heading"><div><h2>设置</h2><p>本地服务与 Android SDK 能力状态。</p></div></section><section className="panel settings-list"><SettingRow label="服务地址" value="127.0.0.1:4319" /><SettingRow label="ADB" value={environment?.adb.path ?? "不可用"} /><SettingRow label="apkanalyzer" value={environment?.apkanalyzer.path ?? "不可用"} /><SettingRow label="数据目录" value="~/.droid-crash-lab/" /></section></>;
+  return <><section className="page-heading"><div><h2>设置</h2><p>本地服务与 Android SDK 能力状态。</p></div></section><section className="panel settings-list"><SettingRow label="服务地址" value={window.location.host} /><SettingRow label="ADB" value={environment?.adb.path ?? "不可用"} /><SettingRow label="apkanalyzer" value={environment?.apkanalyzer.path ?? "不可用"} /><SettingRow label="数据目录" value="~/.droid-crash-lab/" /></section></>;
 }
 
 function SettingRow({ label, value }: { readonly label: string; readonly value: string }) {

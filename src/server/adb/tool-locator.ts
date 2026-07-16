@@ -53,7 +53,10 @@ export async function locateTool(
     return pathResult;
   }
 
-  const sdkRoots = [environment["ANDROID_HOME"], environment["ANDROID_SDK_ROOT"]]
+  const defaultMacSdk = environment["HOME"] === undefined
+    ? undefined
+    : join(environment["HOME"], "Library", "Android", "sdk");
+  const sdkRoots = [environment["ANDROID_HOME"], environment["ANDROID_SDK_ROOT"], defaultMacSdk]
     .filter((root): root is string => root !== undefined && root.length > 0)
     .map((root) => resolve(root))
     .filter((root, index, roots) => roots.indexOf(root) === index);

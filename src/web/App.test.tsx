@@ -163,6 +163,7 @@ describe("App", () => {
 
     expect(screen.getByRole("heading", { name: "设置" })).toBeInTheDocument();
     expect(screen.getByText("本地服务与 Android SDK 能力状态。")) .toBeInTheDocument();
+    expect(screen.getByText(window.location.host)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "开始测试" })).not.toBeInTheDocument();
   });
 });

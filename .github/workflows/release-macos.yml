@@ -1,0 +1,43 @@
+name: Release macOS desktop app
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  build-macos:
+    if: startsWith(github.event.release.tag_name, 'v')
+    runs-on: macos-15
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [arm64, x64]
+
+    steps:
+      - name: Check out release source
+        uses: actions/checkout@v5
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 26
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Sync package version with release tag
+        run: npm version "${GITHUB_REF_NAME#v}" --no-git-tag-version --allow-same-version
+
+      - name: Build unsigned macOS packages
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        run: npm run package:mac -- --${{ matrix.arch }}
+
+      - name: Upload packages to GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$GITHUB_REF_NAME" release/*-${{ matrix.arch }}.dmg release/*-${{ matrix.arch }}.zip --clobber
