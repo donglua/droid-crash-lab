@@ -3,7 +3,7 @@ import type { Dirent } from "node:fs";
 import { access, readdir, realpath, stat } from "node:fs/promises";
 import { delimiter, join, resolve } from "node:path";
 
-export type ToolName = "adb" | "apkanalyzer";
+export type ToolName = "adb" | "apkanalyzer" | "aapt2";
 
 export class ToolLookupError extends Error {
   override readonly name = "ToolLookupError";
@@ -61,14 +61,6 @@ export async function locateTool(
     .map((root) => resolve(root))
     .filter((root, index, roots) => roots.indexOf(root) === index);
   for (const root of sdkRoots) {
-    const directCandidates =
-      tool === "adb"
-        ? [join(root, "platform-tools", tool)]
-        : [join(root, "tools", "bin", tool)];
-    const directResult = await findExecutable(context, directCandidates);
-    if (directResult !== undefined) {
-      return directResult;
-    }
     if (tool === "apkanalyzer") {
       const cmdlineTools = join(root, "cmdline-tools");
       const entries = await directoryEntries(cmdlineTools);
@@ -81,6 +73,28 @@ export async function locateTool(
       if (commandLineResult !== undefined) {
         return commandLineResult;
       }
+    }
+    if (tool === "aapt2") {
+      const buildTools = join(root, "build-tools");
+      const entries = await directoryEntries(buildTools);
+      const buildToolsResult = await findExecutable(
+        context,
+        entries
+          .filter((entry) => entry.isDirectory())
+          .map((entry) => join(buildTools, entry.name, tool)),
+      );
+      if (buildToolsResult !== undefined) {
+        return buildToolsResult;
+      }
+    }
+    const directCandidates = tool === "adb"
+      ? [join(root, "platform-tools", tool)]
+      : tool === "apkanalyzer"
+        ? [join(root, "tools", "bin", tool)]
+        : [];
+    const directResult = await findExecutable(context, directCandidates);
+    if (directResult !== undefined) {
+      return directResult;
     }
   }
 

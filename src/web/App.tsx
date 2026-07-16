@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { ApkInfo, DevicesResponse, EnvironmentResponse, Issue, RawLogLine, RunConfig, RunEvent, RunSummary } from "../shared/contracts.js";
 import { apiClient } from "./api/client.js";
+import { HttpResponseError } from "./api/client.js";
 import { AppShell } from "./components/AppShell.js";
 import { IssueList } from "./features/current-run/IssueList.js";
 import { LogConsole } from "./features/current-run/LogConsole.js";
@@ -21,6 +22,7 @@ export function App() {
   const [selectedIssueId, setSelectedIssueId] = useState<string | undefined>();
   const [selectedLogs, setSelectedLogs] = useState<readonly RawLogLine[]>([]);
   const [operationStatus, setOperationStatus] = useState<string | undefined>();
+  const [operationError, setOperationError] = useState<string | undefined>();
   const { events } = useRunEvents(run?.state === "running" || run?.state === "stopping" ? run.id : undefined);
 
   useEffect(() => {
@@ -47,8 +49,23 @@ export function App() {
   const state = eventState?.state ?? run?.state ?? "idle";
 
   const inspect = async (file: File): Promise<void> => {
-    try { setApk(await apiClient.inspectApk(file)); setOperationStatus(undefined); setLoadFailed(false); }
-    catch { setLoadFailed(true); }
+    try {
+      setApk(await apiClient.inspectApk(file));
+      setOperationStatus(undefined);
+      setOperationError(undefined);
+      setLoadFailed(false);
+    } catch (error) {
+      if (error instanceof HttpResponseError) {
+        setOperationError(
+          error.code === "APK_INSPECTION_FAILED"
+            ? "无法读取 APK 元数据，请更新 Android SDK Command-line Tools 或 Build Tools。"
+            : "APK 检查失败，请确认文件有效后重试。",
+        );
+      } else {
+        setLoadFailed(true);
+        setOperationError(undefined);
+      }
+    }
   };
   const install = async (): Promise<void> => {
     if (apk === undefined || selected === undefined) return;
@@ -103,6 +120,7 @@ export function App() {
         </div>
       </section>
       {loadFailed ? <p className="load-error" role="alert">无法读取本地服务状态，请确认服务已启动。</p> : null}
+      {operationError === undefined ? null : <p className="load-error" role="alert">{operationError}</p>}
       <div className="dashboard-grid">
         <RunSetup canOperate={selected !== undefined} {...(apk === undefined ? {} : { apk })} {...(operationStatus === undefined ? {} : { operationStatus })} running={state === "running" || state === "stopping"} onFileSelect={(file) => void inspect(file)} onInstall={() => void install()} onLaunch={() => void launch()} onStart={(config) => void start(config)} onStop={() => void stop()} />
         <StatusMetrics state={state} elapsed="00:00" issueCount={issues.length} {...(progress === undefined ? {} : { progress })} />

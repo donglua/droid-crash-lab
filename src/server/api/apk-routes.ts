@@ -1,6 +1,6 @@
 import { basename } from "node:path";
 import type { FastifyInstance } from "fastify";
-import { ApkFileTypeError, ApkInstallError } from "../apks/apk-service.js";
+import { ApkFileTypeError, ApkInspectionError, ApkInstallError } from "../apks/apk-service.js";
 import { installApkRequestSchema, launchAppRequestSchema } from "../../shared/schemas.js";
 import type { AppDependencies } from "./api-types.js";
 
@@ -16,6 +16,12 @@ export function registerApkRoutes(app: FastifyInstance, dependencies: AppDepende
     } catch (error) {
       if (error instanceof ApkFileTypeError) {
         return reply.code(400).send(apiError("INVALID_APK", error.message));
+      }
+      if (error instanceof ApkInspectionError) {
+        return reply.code(422).send(apiError(
+          "APK_INSPECTION_FAILED",
+          "Unable to read APK metadata with the installed Android SDK tools",
+        ));
       }
       throw error;
     }

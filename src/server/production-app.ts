@@ -15,15 +15,21 @@ type ProductionAppOptions = {
 
 export async function buildProductionApp(options: ProductionAppOptions = {}) {
   const environment = options.environment ?? process.env;
-  const [adb, apkanalyzer] = await Promise.all([
+  const [adb, apkanalyzer, aapt2] = await Promise.all([
     locateTool("adb", environment),
     locateTool("apkanalyzer", environment),
+    locateTool("aapt2", environment),
   ]);
   const dataRoot = environment["DROID_CRASH_LAB_DATA_ROOT"] ?? DATA_ROOT;
   const adbPath = adb.kind === "found" ? adb.executablePath : "adb";
   const apkanalyzerPath = apkanalyzer.kind === "found" ? apkanalyzer.executablePath : "apkanalyzer";
   const devices = new DeviceService(adbPath);
-  const apks = new ApkService({ dataRoot, adbExecutable: adbPath, apkanalyzerExecutable: apkanalyzerPath });
+  const apks = new ApkService({
+    dataRoot,
+    adbExecutable: adbPath,
+    apkanalyzerExecutable: apkanalyzerPath,
+    ...(aapt2.kind === "found" ? { aapt2Executable: aapt2.executablePath } : {}),
+  });
   const repository = new RunRepository(dataRoot);
   const eventBus = new RunEventBus({ replayLimit: 256 });
   const coordinator = new RunCoordinator({

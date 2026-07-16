@@ -9,16 +9,15 @@ import { apkTokenSchema } from "../../shared/schemas.js";
 import type { ApkToken, DeviceSerial } from "../../shared/schemas.js";
 import { runProcess } from "../adb/process-runner.js";
 import type { ProcessResult } from "../adb/process-runner.js";
-import { parseLauncherComponent, parseMetadataOutput } from "./apk-boundaries.js";
+import { parseLauncherComponent } from "./apk-boundaries.js";
 import {
   ApkFileTypeError,
-  ApkInspectionError,
   ApkInstallError,
   ApkNotFoundError,
   AppLaunchError,
   LauncherResolutionError,
 } from "./apk-errors.js";
-import type { MetadataField } from "./apk-errors.js";
+import { inspectApkMetadata } from "./apk-metadata-inspector.js";
 import { writeOwnedUpload } from "./apk-upload.js";
 
 export {
@@ -40,6 +39,7 @@ export type ApkServiceOptions = {
   readonly dataRoot: string;
   readonly adbExecutable: string;
   readonly apkanalyzerExecutable: string;
+  readonly aapt2Executable?: string;
   readonly tokenFactory?: () => string;
 };
 
@@ -83,23 +83,10 @@ export class ApkService {
       await mkdir(uploadsRoot, { recursive: true });
       await writeOwnedUpload(storedPath, content);
       ownsStoredPath = true;
-      const applicationId = await this.inspectField(
-        "application-id",
-        storedPath,
-      );
-      const versionName = await this.inspectField(
-        "version-name",
-        storedPath,
-      );
-      const versionCode = await this.inspectField(
-        "version-code",
-        storedPath,
-      );
+      const metadata = await inspectApkMetadata(this.options, storedPath);
       const canonicalApk: ApkInfo = Object.freeze({
         token,
-        applicationId,
-        versionName,
-        versionCode,
+        ...metadata,
         storedPath,
       });
       this.apks.set(token, canonicalApk);
@@ -203,22 +190,4 @@ export class ApkService {
     return Object.freeze({ ...apk });
   }
 
-  private async inspectField(
-    field: MetadataField,
-    apkPath: string,
-  ): Promise<string> {
-    const process = await runProcess(this.options.apkanalyzerExecutable, [
-      "manifest",
-      field,
-      apkPath,
-    ]);
-    if (process.kind !== "exited" || process.exitCode !== 0) {
-      throw new ApkInspectionError("TOOL_FAILED", field, process);
-    }
-    const value = parseMetadataOutput(field, process.stdout);
-    if (value === undefined) {
-      throw new ApkInspectionError("INVALID_OUTPUT", field, process);
-    }
-    return value;
-  }
 }

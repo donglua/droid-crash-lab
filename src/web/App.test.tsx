@@ -4,10 +4,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { App } from "./App";
 import { apiClient } from "./api/client";
+import { HttpResponseError } from "./api/client";
 import { apkTokenSchema, deviceSerialSchema, runIdSchema } from "../shared/schemas";
 
-vi.mock("./api/client", () => ({
-  apiClient: {
+vi.mock("./api/client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./api/client")>();
+  return {
+    ...actual,
+    apiClient: {
     environment: vi.fn(async () => ({
       adb: { available: true, path: "/sdk/adb", checkedLocations: [] },
       apkanalyzer: { available: true, path: "/sdk/apkanalyzer", checkedLocations: [] },
@@ -52,11 +56,19 @@ vi.mock("./api/client", () => ({
       completedAt: "2026-07-15T02:04:04.000Z",
       issueCount: 0,
     })),
-  },
-}));
+    },
+  };
+});
 
 beforeEach(() => {
   vi.mocked(apiClient.devices).mockResolvedValue({ devices: [] });
+  vi.mocked(apiClient.inspectApk).mockResolvedValue({
+    token: apkTokenSchema.parse("123e4567-e89b-42d3-a456-426614174000"),
+    applicationId: "cn.example.app",
+    versionName: "1.2.3",
+    versionCode: "123",
+    storedPath: "/tmp/app.apk",
+  });
 });
 
 describe("App", () => {
@@ -102,6 +114,26 @@ describe("App", () => {
     expect(await screen.findByRole("button", { name: "停止测试" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "停止测试" }));
     expect(await screen.findByText("已完成")).toBeInTheDocument();
+  });
+
+  it("shows an APK inspection error without claiming the local service stopped", async () => {
+    vi.mocked(apiClient.devices).mockResolvedValue({
+      devices: [{ serial: deviceSerialSchema.parse("emulator-5554"), state: "device" }],
+      selectedSerial: deviceSerialSchema.parse("emulator-5554"),
+    });
+    vi.mocked(apiClient.inspectApk).mockRejectedValue(
+      new HttpResponseError(422, "/api/apks/inspect", "APK_INSPECTION_FAILED"),
+    );
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.upload(
+      await screen.findByLabelText(/APK 文件/),
+      new File(["apk"], "stock.apk", { type: "application/vnd.android.package-archive" }),
+    );
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("APK 元数据");
+    expect(screen.queryByText(/本地服务状态/u)).not.toBeInTheDocument();
   });
 
   it("opens issue reports and fetches the selected raw log range", async () => {

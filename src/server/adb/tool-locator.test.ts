@@ -175,6 +175,38 @@ describe("locateTool", () => {
     });
   });
 
+  it("prefers command-line tools over the legacy apkanalyzer", async () => {
+    // Given
+    const sdk = await temporaryDirectory();
+    await executable(join(sdk, "tools", "bin", "apkanalyzer"));
+    const preferred = await executable(
+      join(sdk, "cmdline-tools", "latest", "bin", "apkanalyzer"),
+    );
+
+    // When
+    const result = await locateTool("apkanalyzer", { PATH: "", ANDROID_HOME: sdk });
+
+    // Then
+    expect(result).toMatchObject({ kind: "found", executablePath: await realpath(preferred) });
+  });
+
+  it("finds aapt2 in the newest installed build tools", async () => {
+    // Given
+    const sdk = await temporaryDirectory();
+    await executable(join(sdk, "build-tools", "35.0.0", "aapt2"));
+    const preferred = await executable(join(sdk, "build-tools", "37.0.0", "aapt2"));
+
+    // When
+    const result = await locateTool("aapt2", { PATH: "", ANDROID_HOME: sdk });
+
+    // Then
+    expect(result).toEqual({
+      kind: "found",
+      tool: "aapt2",
+      executablePath: await realpath(preferred),
+    });
+  });
+
   it("surfaces operational errors while enumerating command-line tools", async () => {
     // Given
     const sdk = await temporaryDirectory();
@@ -213,8 +245,8 @@ describe("locateTool", () => {
       tool: "apkanalyzer",
       checkedLocations: [
         join(pathEntry, "apkanalyzer"),
-        join(sdk, "tools", "bin", "apkanalyzer"),
         join(sdk, "cmdline-tools", "latest", "bin", "apkanalyzer"),
+        join(sdk, "tools", "bin", "apkanalyzer"),
       ],
     });
   });

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
-import { ApkInstallError } from "../apks/apk-service.js";
+import { ApkInspectionError, ApkInstallError } from "../apks/apk-service.js";
 import { apkTokenSchema } from "../../shared/schemas.js";
 import { dependencies } from "./environment-routes.test.js";
 
@@ -65,6 +65,40 @@ describe("APK routes", () => {
     expect(response.statusCode).toBe(400);
   });
 
+  it("maps metadata tool failures to an actionable APK inspection response", async () => {
+    const deps = dependencies();
+    const app = await buildApp({
+      ...deps,
+      apks: {
+        ...deps.apks,
+        inspect: async () => {
+          throw new ApkInspectionError("TOOL_FAILED", "application-id", {
+            kind: "exited",
+            exitCode: 1,
+            stdout: "",
+            stderr: "legacy apkanalyzer failed",
+          });
+        },
+      },
+    });
+    apps.push(app);
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/apks/inspect",
+      payload: multipartApk("stock.apk", "apk"),
+      headers: { "content-type": "multipart/form-data; boundary=----droid-crash-lab" },
+    });
+
+    expect(response.statusCode).toBe(422);
+    expect(response.json()).toEqual({
+      error: {
+        code: "APK_INSPECTION_FAILED",
+        message: "Unable to read APK metadata with the installed Android SDK tools",
+      },
+    });
+  });
+
   it("maps installation failure to 422 and includes the saved install log path", async () => {
     const deps = dependencies();
     const app = await buildApp({
@@ -95,3 +129,15 @@ describe("APK routes", () => {
     });
   });
 });
+
+function multipartApk(filename: string, content: string): string {
+  return [
+    "------droid-crash-lab",
+    `Content-Disposition: form-data; name="apk"; filename="${filename}"`,
+    "Content-Type: application/vnd.android.package-archive",
+    "",
+    content,
+    "------droid-crash-lab--",
+    "",
+  ].join("\r\n");
+}

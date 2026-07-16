@@ -24,22 +24,40 @@ export type ApiClient = {
 
 async function getJson(url: string): Promise<unknown> {
   const response = await fetch(url, { headers: { accept: "application/json" } });
-  if (!response.ok) throw new HttpResponseError(response.status, url);
+  if (!response.ok) throw await responseError(response, url);
   return response.json();
 }
 
 async function requestJson(url: string, init: RequestInit): Promise<unknown> {
   const response = await fetch(url, init);
-  if (!response.ok) throw new HttpResponseError(response.status, url);
+  if (!response.ok) throw await responseError(response, url);
   return response.json();
 }
 
 export class HttpResponseError extends Error {
   override readonly name = "HttpResponseError";
 
-  constructor(readonly status: number, readonly url: string) {
+  constructor(
+    readonly status: number,
+    readonly url: string,
+    readonly code?: string,
+  ) {
     super(`HTTP ${status} from ${url}`);
   }
+}
+
+async function responseError(response: Response, url: string): Promise<HttpResponseError> {
+  if (!response.headers.get("content-type")?.includes("application/json")) {
+    return new HttpResponseError(response.status, url);
+  }
+  const value: unknown = await response.json();
+  if (typeof value !== "object" || value === null || !("error" in value)) {
+    return new HttpResponseError(response.status, url);
+  }
+  const error = value.error;
+  return typeof error === "object" && error !== null && "code" in error && typeof error.code === "string"
+    ? new HttpResponseError(response.status, url, error.code)
+    : new HttpResponseError(response.status, url);
 }
 
 export const apiClient: ApiClient = {

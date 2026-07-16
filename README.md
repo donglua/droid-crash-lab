@@ -31,7 +31,7 @@ npm start
 
 桌面版复用同一套 React 页面和 Fastify 服务。Electron 启动服务后，在随机本机端口打开应用窗口，因此不会占用固定的 `4319` 端口。
 
-桌面版不包含 Android SDK。运行前仍需安装 Android SDK。服务依次检查 `PATH`、`ANDROID_HOME`、`ANDROID_SDK_ROOT` 和 macOS 默认目录 `~/Library/Android/sdk`。
+桌面版不包含 Android SDK。运行前仍需安装 Android SDK。服务依次检查 `PATH`、`ANDROID_HOME`、`ANDROID_SDK_ROOT` 和 macOS 默认目录 `~/Library/Android/sdk`。APK 元数据优先使用新版 Command-line Tools 中的 `apkanalyzer`；旧版工具无法解析现代 APK 时，使用最新 Build Tools 中的 `aapt2`。
 
 本地启动与打包：
 
